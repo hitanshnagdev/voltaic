@@ -3,55 +3,169 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV_ITEMS = [
-  { href: "/today", label: "Today", key: "today" },
-  { href: "/map", label: "System Map", key: "map" },
-  { href: "/compare", label: "Compare", key: "compare" },
-] as const;
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  badge?: { text: string; tone: "alert" | "ai" };
+};
+
+const NAV: NavItem[] = [
+  {
+    href: "/today",
+    label: "Today",
+    badge: { text: "5", tone: "alert" },
+    icon: (
+      <svg
+        className="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+        />
+      </svg>
+    ),
+  },
+  {
+    href: "/map",
+    label: "System Map",
+    badge: { text: "7", tone: "alert" },
+    icon: (
+      <svg
+        className="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4 6h5v5H4zM4 13h5v7H4zM11 4h9v7h-9zM11 13h9v7h-9z"
+        />
+      </svg>
+    ),
+  },
+  {
+    href: "/compare",
+    label: "Compare",
+    badge: { text: "AI", tone: "ai" },
+    icon: (
+      <svg
+        className="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4 5a1 1 0 011-1h5v16H5a1 1 0 01-1-1V5zM14 4h5a1 1 0 011 1v14a1 1 0 01-1 1h-5V4z"
+        />
+      </svg>
+    ),
+  },
+];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-[240px] shrink-0 flex-col border-r border-[var(--color-rule)] bg-[var(--color-surface-sunken)] px-4 py-5">
-      <div className="mb-8 flex items-center gap-2">
-        <div
-          aria-hidden
-          className="h-6 w-6 rounded-[6px]"
-          style={{ background: "var(--color-coral)" }}
-        />
-        <span className="font-[family-name:var(--font-display)] text-[18px] leading-none">
-          Voltaic
-        </span>
+    <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--color-line)] bg-[var(--color-cream)]">
+      <div className="border-b border-[var(--color-line)] px-5 py-5">
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+          Project
+        </div>
+        <div className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+          Riverside Medical
+        </div>
+        <div className="mt-1 text-xs text-[var(--color-muted)]">
+          $6.5M · Hospital reno · Austin, TX
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{
+              background: "var(--color-coral-tint)",
+              color: "var(--color-coral-dark)",
+            }}
+          >
+            Electrical scope
+          </span>
+          <span className="text-[10px] text-[var(--color-muted-soft)]">
+            MEP later
+          </span>
+        </div>
       </div>
 
-      <nav className="flex flex-col gap-1">
-        {NAV_ITEMS.map((item) => {
+      <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-2 py-3">
+        {NAV.map((item) => {
           const active = pathname?.startsWith(item.href);
           return (
             <Link
-              key={item.key}
+              key={item.href}
               href={item.href}
-              className={[
-                "rounded-[8px] px-3 py-2 text-[14px] transition-colors",
-                active
-                  ? "bg-[var(--color-surface-raised)] text-[var(--color-ink)] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-                  : "text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-ink)]",
-              ].join(" ")}
+              className={`nav-item flex items-center gap-3 rounded-md px-3 py-2 text-sm text-[var(--color-muted)] ${
+                active ? "active" : ""
+              }`}
             >
+              <span className="text-[var(--color-muted-soft)]">
+                {item.icon}
+              </span>
               {item.label}
+              {item.badge && (
+                <span
+                  className="ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                  style={
+                    item.badge.tone === "ai"
+                      ? {
+                          background: "var(--color-coral-tint)",
+                          color: "var(--color-coral-dark)",
+                          fontWeight: 600,
+                        }
+                      : {
+                          background: "var(--color-clay-tint)",
+                          color: "var(--color-clay)",
+                        }
+                  }
+                >
+                  {item.badge.text}
+                </span>
+              )}
             </Link>
           );
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-3">
-        <span className="inline-flex w-fit items-center rounded-full border border-[var(--color-rule)] bg-[var(--color-surface-raised)] px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-[var(--color-ink-muted)]">
-          Electrical scope · MEP later
-        </span>
-        <p className="text-[11px] leading-snug text-[var(--color-ink-faint)]">
-          AI-flagged · Engineer verifies before action.
-        </p>
+      <div className="border-t border-[var(--color-line)] px-5 py-4">
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+          Last AI analysis
+        </div>
+        <div className="text-xs text-[var(--color-ink-soft)]">
+          2 minutes ago
+        </div>
+        <div
+          className="mt-1 flex items-center gap-1.5 text-[11px]"
+          style={{ color: "#3a5844" }}
+        >
+          <span
+            className="pulse-dot h-1.5 w-1.5 rounded-full"
+            style={{ background: "var(--color-sage)" }}
+          />
+          Watching for new uploads
+        </div>
+        <Link
+          href="/compare"
+          className="mt-3 block w-full rounded border border-[var(--color-line)] py-1.5 text-center text-[11px] font-medium text-[var(--color-ink-soft)] transition hover:bg-[var(--color-paper)]"
+        >
+          Run a new check →
+        </Link>
       </div>
     </aside>
   );
