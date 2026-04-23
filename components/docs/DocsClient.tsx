@@ -9,6 +9,7 @@ type DocumentRow = {
   mimeType: string | null;
   docType: string | null;
   status: string;
+  pageCount: number | null;
   uploadedAt: string;
 };
 
@@ -24,6 +25,40 @@ function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function StatusPill({ status }: { status: string }) {
+  const label =
+    status === "pending"
+      ? "Queued"
+      : status === "parsing"
+        ? "Parsing"
+        : status === "ready"
+          ? "Ready"
+          : status === "failed"
+            ? "Failed"
+            : status;
+  const animated = status === "pending" || status === "parsing";
+  const color =
+    status === "ready"
+      ? { bg: "var(--color-sage-tint)", fg: "#3a5844" }
+      : status === "failed"
+        ? { bg: "var(--color-clay-tint)", fg: "var(--color-clay)" }
+        : { bg: "var(--color-coral-tint)", fg: "var(--color-coral-dark)" };
+  return (
+    <span
+      className="inline-flex w-20 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium"
+      style={{ background: color.bg, color: color.fg }}
+    >
+      {animated && (
+        <span
+          className="pulse-dot h-1.5 w-1.5 rounded-full"
+          style={{ background: color.fg }}
+        />
+      )}
+      {label}
+    </span>
+  );
 }
 
 function formatDate(iso: string) {
@@ -55,6 +90,18 @@ export function DocsClient() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Poll while any doc is still being ingested so status updates live.
+  useEffect(() => {
+    const anyInFlight = docs.some(
+      (d) => d.status === "pending" || d.status === "parsing",
+    );
+    if (!anyInFlight) return;
+    const id = setInterval(() => {
+      refresh();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [docs, refresh]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -251,6 +298,7 @@ export function DocsClient() {
                   <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-ink)]">
                     {d.filename}
                   </span>
+                  <StatusPill status={d.status} />
                   <span
                     className="w-20 text-xs font-mono uppercase tracking-wider"
                     style={{
@@ -259,7 +307,10 @@ export function DocsClient() {
                         : "var(--color-muted-soft)",
                     }}
                   >
-                    {d.docType ?? "unclassified"}
+                    {d.docType ?? "—"}
+                  </span>
+                  <span className="w-14 text-right text-xs text-[var(--color-muted)]">
+                    {d.pageCount != null ? `${d.pageCount}p` : "—"}
                   </span>
                   <span className="w-20 text-right text-xs text-[var(--color-muted)]">
                     {formatBytes(d.sizeBytes)}

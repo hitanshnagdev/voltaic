@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { auth } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { inngest } from "@/inngest/client";
 import { db } from "@/lib/db/client";
-import { documents } from "@/lib/db/schema";
+import { documents, projects } from "@/lib/db/schema";
 import { getWorkspaceByClerkOrg } from "@/lib/db/workspace";
 import { putObject } from "@/lib/r2/client";
-import { projects } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 // 60s should cover a ~40MB PDF on dev bandwidth; bump later if needed.
@@ -76,6 +76,15 @@ export async function POST(req: Request) {
       status: "pending",
     })
     .returning();
+
+  await inngest.send({
+    name: "document/uploaded",
+    data: {
+      documentId: row.id,
+      workspaceId: workspace.id,
+      projectId: project.id,
+    },
+  });
 
   return NextResponse.json({ document: row });
 }

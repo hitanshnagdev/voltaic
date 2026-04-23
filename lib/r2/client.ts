@@ -69,3 +69,19 @@ export async function getObjectStream(key: string) {
   );
   return res.Body;
 }
+
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const { client, bucket } = r2Client();
+  const res = await client.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+  const body = res.Body;
+  if (!body) throw new Error(`r2 object not found: ${key}`);
+  // Body is a readable stream in Node. Collect it.
+  const chunks: Buffer[] = [];
+  const stream = body as unknown as NodeJS.ReadableStream;
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
