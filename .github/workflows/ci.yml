@@ -30,6 +30,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test
+        run: npm test
+
       - name: Drizzle migration generate (dry-run)
         env:
           # dummy DATABASE_URL — drizzle-kit generate doesn't connect, but
