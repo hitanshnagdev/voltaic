@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Drizzle migration generate (dry-run)
+        env:
+          # dummy DATABASE_URL — drizzle-kit generate doesn't connect, but
+          # drizzle.config.ts throws if the var is missing.
+          DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+        run: npx drizzle-kit generate --name=ci_check
