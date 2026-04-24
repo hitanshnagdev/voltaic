@@ -88,7 +88,9 @@ export function DocsClient() {
   }, []);
 
   useEffect(() => {
-    refresh();
+    // Initial fetch on mount. Intentional one-shot; not a render-feedback loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
   }, [refresh]);
 
   // Poll while any doc is still being ingested so status updates live.
