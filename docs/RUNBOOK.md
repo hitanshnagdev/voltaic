@@ -26,7 +26,9 @@ npm run dev                     # http://localhost:3000
 | `npm run verify` | Smoke-tests Neon / Anthropic / Voyage / R2 creds |
 | `npm run db:init` | Enables Postgres extensions on a fresh Neon branch |
 | `npm run db:generate` | Generates a Drizzle migration from schema changes |
-| `npm run db:push` | Applies schema changes directly (dev only) |
+| `npm run db:migrate` | Applies `drizzle/pre/*.sql` → generated SQL → `drizzle/post/*.sql` (idempotent) |
+| `npm run db:seed` | Seeds `equipment_csi_map` with canonical CSI mappings |
+| `npm run db:reset -- --yes` | **Destructive** — drops & recreates `public` schema (dev only) |
 | `npm run db:studio` | Opens Drizzle Studio (browser GUI for the DB) |
 
 ### Inngest dev server
@@ -86,10 +88,16 @@ Schema lives in `lib/db/schema.ts`. Migrations live in `drizzle/`.
 npm run db:generate -- --name=add_equipment_table
 
 # Commit the generated SQL file in drizzle/.
-# To apply in dev:
-npm run db:push
+# For RLS / extensions / anything Drizzle can't generate, drop SQL files in
+# drizzle/pre/ (runs before generated) or drizzle/post/ (runs after).
 
-# In production: the app runs migrations on boot (once that wiring lands).
+# To apply:
+npm run db:migrate
+
+# npm run db:migrate is idempotent — tracks applied files in the
+# voltaic_migrations table. It's safe to re-run on every deploy. We DO NOT
+# use `drizzle-kit push`; it bypasses RLS / post-SQL and drifts from the
+# migration log.
 ```
 
 Never edit files in `drizzle/` by hand once committed.
@@ -101,8 +109,8 @@ Each Vercel preview deploy gets its own Neon branch (configured via Neon's Verce
 ```bash
 # In Neon dashboard: delete the branch, recreate from main.
 # Then on the new connection string:
-npm run db:init
-npm run db:push
+npm run db:migrate
+npm run db:seed
 ```
 
 ### RLS

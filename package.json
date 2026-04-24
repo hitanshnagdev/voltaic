@@ -12,7 +12,10 @@
     "db:init": "tsx scripts/db_init_extensions.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:migrate": "tsx scripts/db_migrate.ts",
+    "db:reset": "tsx scripts/db_reset.ts",
+    "db:seed": "tsx scripts/seed_equipment_csi_map.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

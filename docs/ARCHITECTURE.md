@@ -77,8 +77,9 @@ No generic pipeline. Each doc type has a specialized extractor:
 
 | Layer | Missing |
 |---|---|
-| DB schema | `equipment`, `findings`, `spec_paragraphs`, `submittal_fields`, `panel_schedules`, `drawing_annotations`, `document_chunks`, `equipment_csi_map`, `chat_sessions`, `chat_messages`; RLS policies; `app.current_workspace_id` GUC |
-| Data constraints | Drop "one active project per workspace" |
+| DB schema | ~~`equipment`, `findings`, `spec_paragraphs`, `submittal_fields`, `drawing_annotations`, `document_chunks`, `equipment_csi_map`, `chat_sessions`, `chat_messages`; RLS policies; `app.current_workspace_id` GUC~~ — **done in Phase 1**. `panel_schedules` deferred to v1.1. |
+| Data constraints | ~~Drop "one active project per workspace"~~ — never enforced; confirmed in Phase 1. |
+| Caching | ~~`hash_cache` table + `lib/cache/content_hash.ts`~~ — **done in Phase 1**. |
 | Extractors | `lib/rag/parse/{spec,standards,schedule,submittal,drawing}.ts` |
 | Identity | `lib/rag/identity.ts` — CSI/sheet/submittal-log resolver |
 | Normalize | `lib/rag/normalize.ts`, `lib/rag/dedup.ts` |
