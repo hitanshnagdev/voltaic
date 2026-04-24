@@ -1,0 +1,144 @@
+# Voltaic ground-truth template
+#
+# Fill this in WITH an electrical engineer (or senior PM with Div 26 depth) for
+# the demo project. The eval harness runs against this file forever, so getting
+# it right once pays dividends every PR.
+#
+# Schema conventions:
+#   - `tag`             : as written on the drawing (raw form, whatever the PM sees)
+#   - `tag_normalized`  : canonical form, stripped of spaces/dashes/case
+#                         e.g. "PB-L1-A", "PB L1 A", "Panel L1A" → "PBL1A"
+#   - evidence pointers : {document, page, location?}
+#                         document: filename relative to public/demo/
+#                         page: 1-indexed
+#                         location: CSI §, table row, "riser", etc. (string)
+#   - severities        : hot | warm | cool
+#                         hot  = blocks install within 14 days
+#                         warm = blocks install within 14–60 days
+#                         cool = blocks install in 60+ days or quality-only
+#   - verdicts          : non_compliant | compliant | uncertain | no_conflict
+#
+# Delete the "example" blocks once you have real data. Keep the structure.
+
+project:
+  name: "<demo project name, can be redacted>"
+  available_fault_current_ka: 42   # project-wide assumption; used by aic rule
+  voltage_system: "480Y/277V, 3-phase"
+  notes: |
+    Anything load-bearing about the project the eval needs to know.
+
+# ---- equipment (the graph) ----
+# One row per canonical equipment entity. Include only equipment that matters
+# for any finding below; don't exhaustively list every receptacle.
+
+equipment:
+  - tag: "MDP"
+    tag_normalized: "MDP"
+    tag_aliases: ["MDP-A", "Main Distribution Panel"]
+    category: "distribution"         # service|switchgear|distribution|panel|feeder|load|protection|grounding|other
+    fed_from: null                   # tag of upstream equipment, or null for service
+    attributes:
+      aic_ka: 65
+      enclosure_nema: "1"
+      bus_ampacity_a: 1200
+      voltage: "480Y/277V"
+    evidence:
+      - { document: "drawings/E-201.pdf", page: 1, location: "riser" }
+      - { document: "specs/26_24_16.pdf", page: 12, location: "§2.2.A" }
+
+  - tag: "PB-L1-A"
+    tag_normalized: "PBL1A"
+    tag_aliases: ["PB-L1-A", "Panel L1A", "PB L1 A"]
+    category: "panel"
+    fed_from: "MDP"
+    attributes:
+      aic_ka: 65
+      enclosure_nema: "1"
+      voltage: "208Y/120V"
+      main_breaker_a: 200
+    evidence:
+      - { document: "drawings/E-201.pdf", page: 1, location: "riser" }
+      - { document: "drawings/E-301.pdf", page: 2, location: "panel schedule PB-L1-A" }
+      - { document: "submittals/SUB-026-2416-003.pdf", page: 1 }
+
+# ---- spec_requirements ----
+# What the specs actually require. Only include paragraphs that participate
+# in a finding — this keeps the harness focused.
+
+spec_requirements:
+  - csi_section: "26 24 16"
+    paragraph: "2.2.B"
+    requirement_type: "aic"            # aic|sccr|enclosure|conductor|clearance|grounding|approved_manufacturer|other
+    expected:
+      aic_ka_min: 65
+    referenced_standards: ["UL 489"]
+    evidence: { document: "specs/26_24_16.pdf", page: 18, location: "§2.2.B" }
+
+  - csi_section: "26 22 13"
+    paragraph: "1.2"
+    requirement_type: "approved_manufacturer"
+    expected:
+      approved_manufacturers: ["Square D", "Eaton", "GE", "Siemens", "ABB"]
+    referenced_standards: []
+    evidence: { document: "specs/26_22_13.pdf", page: 4, location: "§1.2" }
+
+# ---- submittals ----
+# Each row is the ground-truth extraction for one submittal doc.
+
+submittals:
+  - submittal_log: "SUB-026-2416-003"
+    submittal_rev: "1"
+    filename: "submittals/SUB-026-2416-003.pdf"
+    status: "approved_as_noted"         # approved|approved_as_noted|revise_resubmit|rejected
+    proposed_vendor: "Square D"
+    applies_to_equipment_tags: ["PB-L1-A", "PB-L1-B", "PB-L2-A"]
+    fields:
+      aic_ka: 42
+      enclosure_nema: "1"
+      voltage: "208Y/120V"
+    evidence: { document: "submittals/SUB-026-2416-003.pdf", page: 2 }
+
+  - submittal_log: "SUB-026-2213-002"
+    submittal_rev: "2"
+    filename: "submittals/SUB-026-2213-002.pdf"
+    status: "revise_resubmit"
+    proposed_vendor: "Olsun Electrics"
+    applies_to_equipment_tags: ["T-MDP", "T-ICU"]
+    fields: {}
+    evidence: { document: "submittals/SUB-026-2213-002.pdf", page: 1 }
+
+# ---- expected_findings ----
+# The heart of the harness. These are the blockers an engineer thinks the
+# product MUST fire on this project. The eval measures precision/recall
+# against this list.
+
+expected_findings:
+  - title: "Panelboard submittal SUB-026-2416-003 AIC rating below spec minimum"
+    kind: "rule"                         # rule | interpretive | contradiction
+    rule_id: "aic"
+    severity: "hot"
+    verdict: "non_compliant"
+    category: "material"
+    affected_equipment: ["PB-L1-A", "PB-L1-B", "PB-L2-A"]
+    must_cite:
+      - { document: "specs/26_24_16.pdf", page: 18, location: "§2.2.B" }
+      - { document: "submittals/SUB-026-2416-003.pdf", page: 2 }
+    expected_reasoning_summary: |
+      Submittal fields.aic_ka=42 vs spec §2.2.B requires 65. 42 < 65 → non_compliant.
+
+  - title: "Transformer vendor Olsun Electrics not on approved manufacturer list"
+    kind: "rule"
+    rule_id: "approved_manufacturer"
+    severity: "hot"
+    verdict: "non_compliant"
+    category: "vendor"
+    affected_equipment: ["T-MDP", "T-ICU"]
+    must_cite:
+      - { document: "specs/26_22_13.pdf", page: 4, location: "§1.2" }
+      - { document: "submittals/SUB-026-2213-002.pdf", page: 1 }
+
+# ---- anti-findings (optional) ----
+# Things the product MUST NOT flag as findings. Useful for pinning precision.
+# Comment out or remove if you don't want to seed any yet.
+
+anti_findings: []
