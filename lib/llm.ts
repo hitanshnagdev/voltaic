@@ -11,7 +11,8 @@ export type Purpose =
   | "parse_submittal"
   | "finding_interpretive"
   | "finding_consensus"
-  | "chat";
+  | "chat"
+  | "embed_spec_paragraph";
 
 export type LogCtx = {
   workspaceId: string;
