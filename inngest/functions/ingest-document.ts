@@ -5,7 +5,7 @@ import { db } from "@/lib/db/client";
 import { documentPages, documents } from "@/lib/db/schema";
 import { classify } from "@/lib/llm";
 import { parsePdf } from "@/lib/pdf/parse";
-import { rasterPdf } from "@/lib/pdf/raster";
+import { rasterPdf, targetWidthForDocType } from "@/lib/pdf/raster";
 import { getObjectBuffer, putObject } from "@/lib/r2/client";
 
 type DocType = "drawing" | "spec" | "submittal" | "other";
@@ -99,7 +99,12 @@ export const ingestDocument = inngest.createFunction(
 
     const rasters = await step.run("raster-pages", async () => {
       const buf = await getObjectBuffer(doc.r2Key);
-      const pages = await rasterPdf(buf);
+      // Drawings need higher pixel density than letter-size specs/submittals
+      // (architectural sheets are 30x42" — at the default width they
+      // collapse to ~37 DPI). Pick the right width for the classified type.
+      const pages = await rasterPdf(buf, {
+        targetWidthPx: targetWidthForDocType(classification.type),
+      });
       const uploaded: { pageNum: number; rasterR2Key: string }[] = [];
       for (const r of pages) {
         const key = `workspaces/${workspaceId}/projects/${projectId}/rasters/${documentId}/p${r.pageNum}.png`;
