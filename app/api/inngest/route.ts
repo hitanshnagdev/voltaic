@@ -1,5 +1,6 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
+import { analyzeProject } from "@/inngest/functions/analyze-project";
 import { embedSpecParagraphs } from "@/inngest/functions/embed-spec-paragraphs";
 import { ingestDocument } from "@/inngest/functions/ingest-document";
 import { parseSpecDocument } from "@/inngest/functions/parse-spec";
@@ -15,5 +16,6 @@ export const { GET, POST, PUT } = serve({
     parseSpecDocument,
     parseSubmittalDocument,
     embedSpecParagraphs,
+    analyzeProject,
   ],
 });
