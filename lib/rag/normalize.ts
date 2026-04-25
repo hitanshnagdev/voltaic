@@ -14,12 +14,24 @@
 /**
  * Canonicalize an equipment tag for dedup purposes.
  *
- *   "MDP-A"        → "MDPA"
- *   "MDP A"        → "MDPA"
- *   "mdp_a"        → "MDPA"
- *   "MDP.A"        → "MDPA"
- *   "PP-1A"        → "PP1A"
- *   "  panel-1  "  → "PANEL1"
+ *   "MDP-A"           → "MDPA"
+ *   "MDP A"           → "MDPA"
+ *   "mdp_a"           → "MDPA"
+ *   "MDP.A"           → "MDPA"
+ *   "PP-1A"           → "PP1A"
+ *   "  panel-1  "     → "PANEL1"
+ *   "T-UCCS-LA/LC"    → "TUCCSLALC"   (paired transformer designations
+ *                                       common on real one-line diagrams
+ *                                       — see UCCS bid set, sheet E2.x)
+ *
+ * Why slash collapses with the other separators: real construction
+ * documents use "/" as a paired-output marker (one transformer feeding
+ * two panels: T-A/B). The dedup question is "is this the same physical
+ * piece of equipment?" — which it is, regardless of how many downstream
+ * outputs it serves. The slash is part of the *name* the engineer chose,
+ * not a structural separator. Treating "/" like "-" / "_" / "." keeps
+ * dedup behavior consistent with how the rest of the punctuation is
+ * already handled.
  *
  * Returns null when input is empty or normalizes to an empty string.
  */
@@ -27,7 +39,7 @@ export function normalizeEquipmentTag(raw: string | null | undefined): string | 
   if (raw == null) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const stripped = trimmed.replace(/[\s\-_.]/g, "").toUpperCase();
+  const stripped = trimmed.replace(/[\s\-_./]/g, "").toUpperCase();
   return stripped.length > 0 ? stripped : null;
 }
 
