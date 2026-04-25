@@ -48,6 +48,22 @@ export async function rasterPdf(
   // keeps route registration clean and lets this module import safely
   // anywhere else.
   const { createCanvas } = await import("canvas");
+
+  // pdfjs-dist v5 uses Path2D when rendering vector paths (almost every
+  // real PDF). Path2D is a browser global; Node doesn't provide it, and
+  // node-canvas v3 exports DOMMatrix/DOMPoint but not Path2D. pdfjs's
+  // own polyfill block in pdf.mjs reads `globalThis.Path2D` first, falls
+  // back to `canvas.Path2D` if missing, and warns + crashes when both
+  // are absent — the production failure we hit on Vercel.
+  //
+  // The fix: install `path2d` (a pure-JS server-side Path2D) and stash
+  // it on globalThis *before* importing pdfjs so its module-init can
+  // pick it up. Idempotent across cold/warm starts.
+  if (typeof (globalThis as { Path2D?: unknown }).Path2D === "undefined") {
+    const path2d = await import("path2d");
+    (globalThis as { Path2D?: unknown }).Path2D = path2d.Path2D;
+  }
+
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const targetWidth = opts.targetWidthPx ?? DEFAULT_RASTER_WIDTH_PX;
 
