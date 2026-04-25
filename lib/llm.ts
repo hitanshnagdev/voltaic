@@ -116,3 +116,88 @@ export async function classify<T>(args: {
     throw err;
   }
 }
+
+/**
+ * Vision extraction — pass one or more images plus a prompt, get structured
+ * JSON back. Used by submittal field extraction and (future) drawing
+ * annotation extraction.
+ *
+ * Logs to llm_calls with imageCount populated so the cost meter can
+ * separate vision spend from text spend.
+ */
+export type VisionImage = {
+  /** "image/png" or "image/jpeg" — anything Anthropic vision accepts. */
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64-encoded image bytes. No data: prefix. */
+  data: string;
+};
+
+export async function visionExtract<T>(args: {
+  system: string;
+  prompt: string;
+  images: VisionImage[];
+  ctx: LogCtx;
+  purpose: Purpose;
+  model?: string;
+  maxTokens?: number;
+}): Promise<T> {
+  const model = args.model ?? "claude-sonnet-4-6";
+  const start = Date.now();
+  const imageBlocks = args.images.map(
+    (img) =>
+      ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: img.mediaType,
+          data: img.data,
+        },
+      }) as const,
+  );
+  try {
+    const res = await anthropic().messages.create({
+      model,
+      max_tokens: args.maxTokens ?? 2048,
+      system: args.system,
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...imageBlocks,
+            { type: "text", text: args.prompt },
+          ],
+        },
+      ],
+    });
+    const latencyMs = Date.now() - start;
+    const textBlock = res.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      throw new Error("no text in response");
+    }
+    const parsed = extractJson<T>(textBlock.text);
+    await logCall({
+      ctx: args.ctx,
+      provider: "anthropic",
+      model,
+      purpose: args.purpose,
+      tokensIn: res.usage.input_tokens,
+      tokensOut: res.usage.output_tokens,
+      imageCount: args.images.length,
+      latencyMs,
+    });
+    return parsed;
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    const msg = err instanceof Error ? err.message : String(err);
+    await logCall({
+      ctx: args.ctx,
+      provider: "anthropic",
+      model,
+      purpose: args.purpose,
+      imageCount: args.images.length,
+      latencyMs,
+      error: msg,
+    });
+    throw err;
+  }
+}
