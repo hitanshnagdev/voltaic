@@ -138,10 +138,15 @@ export const ingestDocument = inngest.createFunction(
 
     // Fan out to per-doc-type structural parsers. Each parser is its own
     // durable function so failures are isolated and retries are independent.
-    // Drawing / submittal / panel-schedule events land as those parsers ship.
+    // Drawing / panel-schedule events land as those parsers ship.
     if (classification.type === "spec") {
       await step.sendEvent("emit-spec-classified", {
         name: "document/spec-classified",
+        data: { documentId, workspaceId, projectId },
+      });
+    } else if (classification.type === "submittal") {
+      await step.sendEvent("emit-submittal-classified", {
+        name: "document/submittal-classified",
         data: { documentId, workspaceId, projectId },
       });
     }
