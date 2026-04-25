@@ -136,6 +136,16 @@ export const ingestDocument = inngest.createFunction(
         .where(eq(documents.id, documentId));
     });
 
+    // Fan out to per-doc-type structural parsers. Each parser is its own
+    // durable function so failures are isolated and retries are independent.
+    // Drawing / submittal / panel-schedule events land as those parsers ship.
+    if (classification.type === "spec") {
+      await step.sendEvent("emit-spec-classified", {
+        name: "document/spec-classified",
+        data: { documentId, workspaceId, projectId },
+      });
+    }
+
     return {
       documentId,
       docType: classification.type,
