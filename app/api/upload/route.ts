@@ -7,12 +7,11 @@ import { db } from "@/lib/db/client";
 import { documents, projects } from "@/lib/db/schema";
 import { getWorkspaceByClerkOrg } from "@/lib/db/workspace";
 import { putObject } from "@/lib/r2/client";
+import { bytesToMb, getMaxUploadBytes } from "@/lib/upload/limits";
 
 export const runtime = "nodejs";
 // 60s should cover a ~40MB PDF on dev bandwidth; bump later if needed.
 export const maxDuration = 60;
-
-const MAX_BYTES = 50 * 1024 * 1024; // 50 MB per file for v1
 
 export async function POST(req: Request) {
   const { orgId } = await auth();
@@ -44,8 +43,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing_file" }, { status: 400 });
   }
 
-  if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "file_too_large" }, { status: 413 });
+  const maxBytes = getMaxUploadBytes();
+  if (file.size > maxBytes) {
+    return NextResponse.json(
+      {
+        error: "file_too_large",
+        message: `File "${file.name}" is ${bytesToMb(file.size)} MB; the upload limit is ${bytesToMb(maxBytes)} MB.`,
+        filename: file.name,
+        sizeBytes: file.size,
+        maxBytes,
+        maxMb: bytesToMb(maxBytes),
+      },
+      { status: 413 },
+    );
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
