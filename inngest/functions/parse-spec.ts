@@ -1,6 +1,6 @@
 import "server-only";
 import crypto from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, notInArray } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { memoize } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
@@ -176,13 +176,41 @@ export const parseSpecDocument = inngest.createFunction(
 
     await step.run("save-paragraphs", async () => {
       await withWorkspace(workspaceId, async (tx) => {
-        // Idempotent: re-firing always replaces the row set for this doc.
-        // spec_paragraphs has no unique constraint we can lean on for upsert.
-        await tx
-          .delete(specParagraphs)
-          .where(eq(specParagraphs.documentId, documentId));
+        // Order matters and both ops live in the same transaction.
+        //
+        // 1. INSERT first with ON CONFLICT DO NOTHING. The unique index on
+        //    (document_id, content_sha256) makes unchanged paragraphs no-op
+        //    here, which preserves their existing `embedding` vectors —
+        //    re-parses don't burn Voyage tokens on identical content.
+        //
+        // 2. THEN delete paragraphs that vanished from the new parse. Doing
+        //    delete-first would create a window where readers see neither
+        //    old nor new for unchanged rows.
         if (rows.length) {
-          await tx.insert(specParagraphs).values(rows);
+          await tx
+            .insert(specParagraphs)
+            .values(rows)
+            .onConflictDoNothing({
+              target: [
+                specParagraphs.documentId,
+                specParagraphs.contentSha256,
+              ],
+            });
+
+          const newShas = rows.map((r) => r.contentSha256);
+          await tx
+            .delete(specParagraphs)
+            .where(
+              and(
+                eq(specParagraphs.documentId, documentId),
+                notInArray(specParagraphs.contentSha256, newShas),
+              ),
+            );
+        } else {
+          // Fresh parse produced zero rows — drop everything for this doc.
+          await tx
+            .delete(specParagraphs)
+            .where(eq(specParagraphs.documentId, documentId));
         }
       });
     });

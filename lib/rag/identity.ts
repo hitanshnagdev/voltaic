@@ -22,6 +22,7 @@
  * `documents.identity`.
  */
 
+import { IdentityConfidence } from "./confidence";
 import { matchSection, normalizeCsiNumber } from "./parse/csi";
 
 // ----------------------------------------------------------------------------
@@ -118,11 +119,8 @@ export type ResolveSpecIdentityInput = {
  * section headers. If none found, falls back to a filename CSI hint. If that
  * also misses, returns identity_confidence=0 and identified_via="none".
  *
- * Confidence calibration (rough, pre-eval):
- *   - one header hit:       0.95
- *   - multiple header hits: 0.9  (a multi-section spec is a real pattern)
- *   - filename hint only:   0.5
- *   - nothing:              0
+ * Confidence values come from `lib/rag/confidence.ts` so the ladder is
+ * shared with future drawing/submittal resolvers and tunable in one place.
  */
 export function resolveSpecIdentity(
   input: ResolveSpecIdentityInput,
@@ -136,14 +134,14 @@ export function resolveSpecIdentity(
     return {
       csi_sections: headers,
       identified_via: "header",
-      identity_confidence: 0.95,
+      identity_confidence: IdentityConfidence.HEADER,
     };
   }
   if (headers.length > 1) {
     return {
       csi_sections: headers,
       identified_via: "multiple",
-      identity_confidence: 0.9,
+      identity_confidence: IdentityConfidence.MULTIPLE_HEADER,
     };
   }
 
@@ -152,12 +150,12 @@ export function resolveSpecIdentity(
     return {
       csi_sections: [filenameHint],
       identified_via: "filename",
-      identity_confidence: 0.5,
+      identity_confidence: IdentityConfidence.FILENAME,
     };
   }
 
   return {
     identified_via: "none",
-    identity_confidence: 0,
+    identity_confidence: IdentityConfidence.NONE,
   };
 }
