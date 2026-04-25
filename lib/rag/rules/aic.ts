@@ -28,7 +28,9 @@
  * nothing to check it against).
  */
 
+import { FindingConfidence } from "@/lib/rag/confidence";
 import type { RetrievedAtom } from "@/lib/rag/retrieve/hybrid";
+import { severityFor, type EvidenceQuality, type MagnitudeBand } from "@/lib/rag/severity";
 import type {
   AicTriple,
   RuleEvidence,
@@ -149,8 +151,14 @@ export function evaluateAic(triple: AicTriple): RuleResult | null {
     return {
       ruleId: RULE_ID,
       verdict: "uncertain",
-      confidence: requirement!.kind === "spec" ? 0.6 : 0.4,
-      severity: "cool",
+      confidence:
+        requirement!.kind === "spec"
+          ? FindingConfidence.WEAK_MISSING_VALUE
+          : FindingConfidence.WEAK_FALLBACK_MISSING_VALUE,
+      severity: severityFor({
+        evidenceQuality: "incomplete",
+        magnitude: "uncertain",
+      }),
       summary: `Cannot evaluate AIC for ${triple.equipment.tag ?? "equipment"}: required ${reqKa} kA but no submittal AIC value found.`,
       inputs: {
         submittedAicKa: null,
@@ -167,8 +175,11 @@ export function evaluateAic(triple: AicTriple): RuleResult | null {
     return {
       ruleId: RULE_ID,
       verdict: "uncertain",
-      confidence: 0.3,
-      severity: "cool",
+      confidence: FindingConfidence.WEAK_MISSING_REQUIREMENT,
+      severity: severityFor({
+        evidenceQuality: "incomplete",
+        magnitude: "uncertain",
+      }),
       summary: `Submitted AIC = ${submitted} kA for ${triple.equipment.tag ?? "equipment"} but no required value (no spec citation, no project fault current set).`,
       inputs: {
         submittedAicKa: submitted,
@@ -185,22 +196,19 @@ export function evaluateAic(triple: AicTriple): RuleResult | null {
   const passed = submitted >= required;
   const margin = submitted - required;
 
-  // Severity calibration:
-  // - Failure with spec citation → hot.
-  // - Failure relying on project fallback → warm (less trust in the input).
-  // - Pass with margin ≤ 0 (exactly equal) is technically compliant but
-  //   uncomfortably tight; downgrade severity to warm so it's surfaced
-  //   prominently in the UI as a reviewable item.
-  let severity: "hot" | "warm" | "cool";
-  if (!passed) {
-    severity = requirement.kind === "spec" ? "hot" : "warm";
-  } else if (margin === 0) {
-    severity = "warm";
-  } else {
-    severity = "cool";
-  }
+  const evidenceQuality: EvidenceQuality =
+    requirement.kind === "spec" ? "primary" : "fallback";
+  const magnitude: MagnitudeBand = !passed
+    ? "non_compliant"
+    : margin === 0
+      ? "compliant_zero_margin"
+      : "compliant_margin";
+  const severity = severityFor({ evidenceQuality, magnitude });
 
-  const confidence = requirement.kind === "spec" ? 0.95 : 0.7;
+  const confidence =
+    requirement.kind === "spec"
+      ? FindingConfidence.STRONG
+      : FindingConfidence.MEDIUM;
 
   return {
     ruleId: RULE_ID,
