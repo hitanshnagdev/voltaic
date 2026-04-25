@@ -68,10 +68,21 @@ export type CsiLineMatch =
 // fragment (sub-section numbers exist in some MasterFormat extensions).
 const CSI_NUMBER = /(\d{2})[\s]*(\d{2})[\s]*(\d{2})(?:\.(\d+))?/;
 
+// Section heading. Some master specs (UFGS, BSD) prefix headings with the
+// literal word "SECTION"; others (university and agency master specs like
+// UMN, U-Houston) write the heading as a bare CSI number followed by the
+// title. Both must parse, so the "SECTION " prefix is optional. False
+// positives from TOCs and body text are filtered in `matchSection` below.
 const SECTION_RE = new RegExp(
-  `^\\s*SECTION\\s+${CSI_NUMBER.source}\\s*[-–—:]?\\s*(.+?)\\s*$`,
+  `^\\s*(?:SECTION\\s+)?${CSI_NUMBER.source}\\s*[-–—:]?\\s+(.+?)\\s*$`,
   "i",
 );
+
+// Patterns that look like section headings but are actually TOC entries:
+//   - "26 05 00 GENERAL ELECTRICAL REQUIREMENTS ......3"  (dotted leaders)
+//   - "26 05 00 GENERAL ELECTRICAL REQUIREMENTS 3"        (trailing page num)
+const DOTTED_LEADERS = /\.{3,}/;
+const TRAILING_PAGE_NUM = /\s+\d+\s*$/;
 
 const PART_RE = /^\s*PART\s+(\d+)\s*[-–—:]?\s*(.+?)\s*$/i;
 
@@ -103,10 +114,23 @@ export function matchSection(line: string): CsiSectionHeader | null {
   const m = line.match(SECTION_RE);
   if (!m) return null;
   const [, d1, d2, d3, sub, rawTitle] = m;
+  if (!rawTitle) return null;
+  const title = rawTitle.trim().replace(/\s+/g, " ");
+  if (!title) return null;
+
+  // Filter false positives that the looser regex now lets through.
+  // - TOC entries: "26 05 00 GENERAL REQUIREMENTS ......3"
+  // - TOC entries with bare page number: "26 05 00 GENERAL REQUIREMENTS 3"
+  // - Body-text references: "26 24 16 panelboards shall be NEMA 1"
+  //   (real CSI section titles are uppercase; body refs are sentence case)
+  if (DOTTED_LEADERS.test(title)) return null;
+  if (TRAILING_PAGE_NUM.test(title)) return null;
+  if (!/^[A-Z]/.test(title)) return null;
+
   return {
     kind: "section",
     section: normalizeCsiNumber(d1, d2, d3, sub),
-    title: rawTitle.trim().replace(/\s+/g, " "),
+    title,
   };
 }
 

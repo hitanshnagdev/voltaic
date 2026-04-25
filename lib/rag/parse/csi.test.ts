@@ -50,6 +50,61 @@ describe("matchSection", () => {
   it("returns null on body text", () => {
     expect(matchSection("See Section 26 24 16 for details.")).toBeNull();
   });
+
+  // The "SECTION " prefix is optional. University and agency master specs
+  // (UMN, U-Houston, Wisconsin DOA) write headings as bare CSI numbers.
+  it("parses bare CSI heading without SECTION prefix", () => {
+    expect(matchSection("26 24 16 PANELBOARDS")).toEqual({
+      kind: "section",
+      section: "26 24 16",
+      title: "PANELBOARDS",
+    });
+  });
+
+  it("parses bare CSI heading with sub-section number", () => {
+    expect(matchSection("26 24 16.13 PANELBOARDS")).toEqual({
+      kind: "section",
+      section: "26 24 16.13",
+      title: "PANELBOARDS",
+    });
+  });
+
+  it("parses bare CSI heading with multi-word title", () => {
+    expect(matchSection("26 05 73 ELECTRICAL STUDIES")?.title).toBe(
+      "ELECTRICAL STUDIES",
+    );
+    expect(matchSection("26 24 13 SWITCHBOARDS")?.title).toBe("SWITCHBOARDS");
+  });
+
+  // TOC false positives: the looser regex would have matched these. The
+  // post-validation step rejects them.
+  it("rejects TOC entries with dotted leaders", () => {
+    expect(
+      matchSection("26 05 00 GENERAL ELECTRICAL REQUIREMENTS ......3"),
+    ).toBeNull();
+    expect(matchSection("26 24 16 PANELBOARDS .................. 57")).toBeNull();
+  });
+
+  it("rejects TOC entries with trailing page numbers", () => {
+    expect(
+      matchSection("26 05 00 GENERAL ELECTRICAL REQUIREMENTS 3"),
+    ).toBeNull();
+    expect(matchSection("26 24 16 PANELBOARDS 57")).toBeNull();
+  });
+
+  it("rejects body-text references that happen to start with a CSI number", () => {
+    // "26 24 16 are panelboards installed in..." — title is sentence case.
+    expect(
+      matchSection("26 24 16 are panelboards installed throughout"),
+    ).toBeNull();
+  });
+
+  it("does not reject legitimate titles that contain digits", () => {
+    // "INTERIOR LIGHTING - 480V" — trailing token is "480V" not bare "480".
+    expect(matchSection("26 50 00 INTERIOR LIGHTING - 480V")?.title).toBe(
+      "INTERIOR LIGHTING - 480V",
+    );
+  });
 });
 
 describe("matchPart", () => {
