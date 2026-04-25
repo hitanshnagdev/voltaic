@@ -187,6 +187,13 @@ export const parseSpecDocument = inngest.createFunction(
       });
     });
 
+    if (rows.length > 0) {
+      await step.sendEvent("emit-spec-paragraphs-written", {
+        name: "document/spec-paragraphs-written",
+        data: { documentId, workspaceId, projectId },
+      });
+    }
+
     return {
       documentId,
       projectId,
