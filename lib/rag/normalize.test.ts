@@ -37,6 +37,26 @@ describe("normalizeEquipmentTag", () => {
     expect(normalizeEquipmentTag("---")).toBeNull();
     expect(normalizeEquipmentTag("..")).toBeNull();
   });
+
+  it("collapses slash-paired tags into a single canonical key", () => {
+    // Real one-line diagrams use "/" to pair downstream outputs of one
+    // physical piece of equipment (e.g. UCCS T-UCCS-LA/LC = one
+    // transformer feeding both UCCSLA and UCCSLC).
+    expect(normalizeEquipmentTag("T-UCCS-LA/LC")).toBe("TUCCSLALC");
+    expect(normalizeEquipmentTag("T-ISAC-LA/WA")).toBe("TISACLAWA");
+  });
+
+  it("normalizes the same physical equipment across slash and dash variants", () => {
+    // If a spec writer used "T-A-B" and a drawing used "T-A/B", they're
+    // the same physical equipment for dedup purposes.
+    expect(normalizeEquipmentTag("T-A/B")).toBe(normalizeEquipmentTag("T-A-B"));
+    expect(normalizeEquipmentTag("PP/1A")).toBe(normalizeEquipmentTag("PP-1A"));
+  });
+
+  it("returns null for separator-only input that includes slashes", () => {
+    expect(normalizeEquipmentTag("/")).toBeNull();
+    expect(normalizeEquipmentTag("/-/")).toBeNull();
+  });
 });
 
 describe("normalizeAicKa", () => {
