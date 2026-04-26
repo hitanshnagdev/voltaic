@@ -1,6 +1,35 @@
 import "server-only";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export type RasterPage = { pageNum: number; png: Buffer };
+
+/**
+ * pdfjs needs to look up two kinds of binary assets at render time:
+ *   1. Standard font data (Foxit-derived .pfb files for Helvetica, Courier,
+ *      Times, Symbol, ZapfDingbats) — used as fallback when a PDF
+ *      references a font but doesn't embed glyphs for it.
+ *   2. cmap files (.bcmap) — used to decode CJK character encodings.
+ *
+ * In a browser these are fetched from a CDN. In Node serverless they have
+ * to be local file:// URLs. pdfjs-dist ships both directories at the
+ * package root; resolve them via createRequire so the path works whether
+ * the package lives in node_modules/pdfjs-dist or wherever Vercel's
+ * bundler relocates it inside the function bundle.
+ *
+ * Without these URLs, pdfjs can't find any font and renders every glyph
+ * as a solid black rectangle. Sonnet vision sees black boxes, returns
+ * null for every numeric field, the AIC rule never fires.
+ */
+const requireFromHere = createRequire(import.meta.url);
+const pdfjsRoot = dirname(
+  requireFromHere.resolve("pdfjs-dist/package.json"),
+);
+const STANDARD_FONT_DATA_URL = pathToFileURL(
+  join(pdfjsRoot, "standard_fonts/"),
+).toString();
+const CMAP_URL = pathToFileURL(join(pdfjsRoot, "cmaps/")).toString();
 
 /**
  * Default raster widths per document type, in pixels.
@@ -71,9 +100,15 @@ export async function rasterPdf(
     data: new Uint8Array(buf),
     // @ts-expect-error disableWorker is valid at runtime but not in types
     disableWorker: true,
-    disableFontFace: true,
+    // useSystemFonts: false — Vercel's serverless runtime has no installed
+    // OS fonts and no fontconfig, so anything that depends on system fonts
+    // fails silently and pdfjs renders text as solid black rectangles.
+    // Provide pdfjs-dist's bundled standard fonts and cmaps instead.
+    useSystemFonts: false,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
+    cMapUrl: CMAP_URL,
+    cMapPacked: true,
     isEvalSupported: false,
-    useSystemFonts: true,
   });
   const doc = await loadingTask.promise;
   const out: RasterPage[] = [];
