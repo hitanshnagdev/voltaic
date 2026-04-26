@@ -188,12 +188,17 @@ CLAUDE.md gets updated in the compare-page UI PR.
 
 **Bug fixes are exempt.** A real bug — wrong verdict on demo PDF, broken ingest, regression — overrides the freeze. The freeze targets *forward investment*, not *defending what shipped*.
 
-**Unfreeze condition (concrete, not squishy).** All three must be true:
+**Unfreeze condition (concrete, not squishy).** All four must be true:
 1. `/compare` is deployed to production (`voltaic-ten.vercel.app/compare` accessible).
 2. The page reads from `submittal_fields` directly — no mock data, no fixtures.
-3. The page renders the demo project's actually-extracted attributes against the hardcoded panelboard requirement set, with verdicts visible per row.
+3. The page renders the demo project's actually-extracted attributes against the spec-side requirement set, with verdicts visible per row.
+4. **Manual verification gate.** At least one rendered row has been walked back to its source bytes in the source PDFs (spec PDF + submittal PDF) and confirmed: cited value matches the PDF text verbatim, the page number is correct, the retrieved spec atom is the right one, and the normalized value matches what's visible. *"Loop wired" ≠ "loop works."* This step distinguishes the two.
 
-**Once unfrozen, the next decision is data-driven, not aesthetic.** Look at what the rendered page exposes about the demo project. If equality checks across the panelboard rows produce zero interesting output, the rule engine isn't the bottleneck — extraction is. If they produce interesting output, the shell is validated and we pick the next deepening based on what's actually missing, not what would be elegant.
+**Why the manual-verification gate matters.** The defense the freeze provides is that next-session can ship narrow without compounding under-the-hood. The *cure*, separately, is that the rendered artifact actually proves the chain works end-to-end. If the screenshot is beautiful and shows a confidently-wrong value because the extraction silently mis-fired, the freeze unfreezes on a false signal and the next round of work doubles down on broken inputs. Walk one row to source bytes before declaring victory.
+
+**On condition 3 — "spec-side requirement set."** The compare page's left column (what the spec requires) MUST come from real spec data — `retrieve()` over `spec_paragraphs` with a small per-attribute extractor for the values, cloning the AIC rule's pattern. A page that hardcodes the spec-side and only renders real submittal-side data is a UI demo, not a validation: the only cell with real provenance is "submitted." Hardcoding spec values for v0 is the rationalization to avoid; if the PR cap (U16) needs to be raised explicitly to fit the spec retrieval, raise it explicitly.
+
+**Once unfrozen, the next decision is data-driven, not aesthetic.** Look at what the rendered + verified page exposes about the demo project. If equality checks across the panelboard rows produce zero interesting output, the rule engine isn't the bottleneck — extraction is. If they produce interesting output, the shell is validated and we pick the next deepening based on what's actually missing, not what would be elegant.
 
 ### U16 — PR size cap: ~500 LOC, soft target
 

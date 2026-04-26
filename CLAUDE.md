@@ -4,6 +4,22 @@
 
 ---
 
+## READ FIRST — `docs/DECISIONS.md` is canonical
+
+**Before editing any file in `lib/rag/`, `inngest/functions/`, `app/(authed)/`, or anything that touches the rule engine, retrieval, or UI surfaces — read `docs/DECISIONS.md` end-to-end.** It is append-only and supersedes parts of this file as decisions evolve. This file is the build *spec*; `DECISIONS.md` is the build *log*. When they conflict, `DECISIONS.md` wins.
+
+### Active freezes (summary; full text in `docs/DECISIONS.md`)
+
+These bind every session until their unfreeze conditions are met. Do not chip away at them, do not "stack one small thing on top," do not propose hardening passes.
+
+- **U15 — Freeze on new under-the-hood work.** No new rules, no rule hardening (NEMA partial-order fix, AIC edge cases, citation guard tuning), no new parser passes (spec-checklist), no infrastructure refactors. Bug fixes are exempt; forward investment is not. **Unfreeze condition (all three required):** `/compare` deployed to prod + reads from `submittal_fields` directly (no mocks) + one rendered row manually walked back to its source-PDF bytes and confirmed correct.
+- **U16 — Soft ~500 LOC PR cap.** When a PR crosses the cap, that's the prompt to ask "do I still need the next part?" — not to keep building. If the cap genuinely needs to be raised for a coherent piece of work, raise it explicitly in the PR description with the reason.
+- **U9 (still active) — No rule #4** (ampacity, coordination, spec_drift) until the screenshot moment AND U15 is unfrozen. Reinforced by U15.
+
+If you find yourself wanting to do work that violates a freeze, the answer is to add a TODO comment pointing at the future-state and open a PR for the unfrozen path — not to negotiate the freeze with yourself.
+
+---
+
 ## What Voltaic is
 
 Voltaic is an install-readiness decision layer for electrical specialty contractors. A PM drops a project's drawings, specs, and submittals into the app. Voltaic extracts an equipment graph, runs a standing compliance pass, and surfaces install blockers on a **Today** view, the equipment topology on a **System Map** view, and answers free-text questions with evidence-bound responses on a **Compare** view.
