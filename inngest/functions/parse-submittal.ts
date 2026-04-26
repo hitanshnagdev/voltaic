@@ -6,11 +6,14 @@ import { memoize } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
 import { documents, equipment, submittalFields } from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
-import { documentExtract } from "@/lib/llm";
+import { documentExtract, type DocumentPageCitation } from "@/lib/llm";
 import {
   normalizeAicKa,
   normalizeEquipmentTag,
   normalizeNemaRating,
+  normalizePhase,
+  normalizeVoltageSystemV,
+  normalizeWires,
 } from "@/lib/rag/normalize";
 import { getObjectBuffer } from "@/lib/r2/client";
 
@@ -46,10 +49,13 @@ type SubmittalClassifiedEvent = {
  * Tag rolled into the vision cache key so changing the input mode
  * (raster images → PDF document → ...) auto-invalidates prior results.
  * Bump when the extraction strategy changes in a way that affects model
- * output. v3-pdf-direct = sending the original PDF as a document block
- * to Sonnet rather than rasterizing first.
+ * output. Strategy log:
+ *   v3-pdf-direct       — PDF as document block (vs prior raster pages)
+ *   v4-typed+citations  — expanded typed numerics (sccr, voltage_system,
+ *                         phase, wires, series_rated, listings, main_type)
+ *                         and citations API enabled on the document block
  */
-const VISION_INPUT_MODE = "v3-pdf-direct";
+const VISION_INPUT_MODE = "v4-typed+citations";
 
 const VISION_SYSTEM = `You are extracting structured electrical equipment data from a vendor submittal package (cut sheet, datasheet, or product data sheet).
 
@@ -75,6 +81,14 @@ DISAMBIGUATION RULES (this is the hard part — read carefully):
 
 5. Approval stamp. Look for a review stamp (often on the cover page) with checkboxes like "Approved", "Approved as Noted", "Revise & Resubmit", "Rejected". Extract whichever is checked. If multiple are checked or it's ambiguous, prefer the most restrictive (Revise > Approved as Noted > Approved). If no stamp is visible, use null.
 
+6. Bus bracing vs SCCR. On switchboards and panelboards, "bus bracing" is the same physical rating as SCCR — the withstand current of the bus assembly. If a submittal labels it "bus bracing", extract it as sccr_ka. (Don't double-extract — pick one source, prefer SCCR if both terms appear.)
+
+7. Series-rated combinations. Some breakers achieve their AIC rating only when paired with a specific upstream device (a "series-rated combination"). The submittal will say so explicitly: "series-rated with upstream X", "series combination per UL", or a footnote on the AIC value. Many specs prohibit series-rated combos — set series_rated = true when the SUBMITTED AIC depends on series rating, false when the device is fully rated standalone, null when unclear.
+
+8. Main type. "MLO" = Main Lugs Only (no main breaker, just lugs). "MCB" = Main Circuit Breaker. "MCCB" = Molded Case Circuit Breaker. Some submittals say "main switch" or "main fusible" — extract verbatim if not one of the standard codes.
+
+9. Voltage system normalization. Extract the raw voltage string (e.g. "480Y/277V", "208Y/120V") AND the normalized line-to-line system voltage as an integer ("480Y/277V" → 480, "208Y/120V" → 208, "240V" → 240). For wye-connected systems use the higher number; for delta or single-voltage use the bare number.
+
 OUTPUT FORMAT — JSON ONLY, no prose outside the JSON:
 
 {
@@ -83,11 +97,17 @@ OUTPUT FORMAT — JSON ONLY, no prose outside the JSON:
   "model_num": string | null,             // Catalog number (e.g. "NQOD442L225CU", "HCP-1600-3R-65A-AL").
   "fields": {
     "aic_ka": number | null,              // SUBMITTED breaker AIC at primary voltage, in kA (so 65, NOT 65000).
-    "sccr_ka": number | null,             // SUBMITTED bus assembly SCCR, in kA.
-    "voltage": string | null,             // e.g. "208Y/120V", "480Y/277V", "240V".
+    "sccr_ka": number | null,             // SUBMITTED bus assembly SCCR (or "bus bracing"), in kA.
+    "series_rated": boolean | null,       // True when the SUBMITTED AIC depends on a series-rated combination with an upstream device. False if fully rated standalone. Null if not stated.
+    "voltage": string | null,             // Raw voltage label, e.g. "208Y/120V", "480Y/277V", "240V".
+    "voltage_system_v": number | null,    // Normalized line-to-line system voltage, integer: 208 | 240 | 277 | 480 | 600.
+    "phase": number | null,               // 1 or 3.
+    "wires": number | null,               // 2, 3, or 4.
     "ampacity_a": number | null,          // Main / frame ampacity, in amperes.
+    "main_type": string | null,           // "MLO" | "MCB" | "MCCB" | other verbatim if non-standard. Null if not applicable.
     "poles": number | null,               // 1, 2, 3, or 4.
-    "enclosure_nema": string | null       // NEMA enclosure code: "1", "3R", "4", "4X", "12".
+    "enclosure_nema": string | null,      // NEMA enclosure code: "1", "3R", "4", "4X", "12".
+    "listings": (string[]) | null         // Listing standards cited on the submittal, normalized form: ["UL 891"], ["UL 67", "UL 891"], ["UL 489"]. Null if no listing visible.
   },
   "submittal_status": string | null,      // From approval stamp: "approved" | "approved_as_noted" | "revise_resubmit" | "rejected" | null.
   "primary_page": number,                 // 1-indexed page where the strongest field data is visible.
@@ -130,22 +150,30 @@ type VisionPayload = {
   fields: {
     aic_ka: number | null;
     sccr_ka: number | null;
+    series_rated: boolean | null;
     voltage: string | null;
+    voltage_system_v: number | null;
+    phase: number | null;
+    wires: number | null;
     ampacity_a: number | null;
+    main_type: string | null;
     poles: number | null;
     enclosure_nema: string | null;
+    listings: string[] | null;
   };
   submittal_status: string | null;
   primary_page: number;
   extraction_notes?: string | null;
 };
 
+type SubmittalFieldValue = number | string | boolean | string[] | DocumentPageCitation[];
+
 type NormalizedSubmittal = {
   rawTag: string | null;
   tagNormalized: string | null;
   vendor: string | null;
   modelNum: string | null;
-  fields: Record<string, number | string | null>;
+  fields: Record<string, SubmittalFieldValue>;
   submittalStatus: string | null;
   pageNum: number;
 };
@@ -153,9 +181,16 @@ type NormalizedSubmittal = {
 /**
  * Pure transform from VisionPayload → row-ready normalized values.
  * Exported for unit tests; doesn't touch the DB.
+ *
+ * `citations` is the page_location array from the citations API call,
+ * passed through to the fields jsonb under the `_citations` key. We
+ * don't try to attach citations to specific fields here — that's a
+ * later best-effort lookup once the comparator/compare-page lands.
+ * Storing the full array keeps every cited span recoverable.
  */
 export function normalizeSubmittalPayload(
   payload: VisionPayload,
+  citations: DocumentPageCitation[] = [],
 ): NormalizedSubmittal {
   const rawTag = payload.equipment_tag;
   const tagNormalized = normalizeEquipmentTag(rawTag);
@@ -169,21 +204,51 @@ export function normalizeSubmittalPayload(
     payload.fields.sccr_ka != null ? String(payload.fields.sccr_ka) : null,
   );
   const enclosureNormalized = normalizeNemaRating(payload.fields.enclosure_nema);
+  const voltageSystemNormalized = normalizeVoltageSystemV(
+    payload.fields.voltage_system_v != null
+      ? payload.fields.voltage_system_v
+      : payload.fields.voltage,
+  );
+  const phaseNormalized = normalizePhase(payload.fields.phase);
+  const wiresNormalized = normalizeWires(payload.fields.wires);
 
-  const fields: Record<string, number | string | null> = {};
+  const fields: Record<string, SubmittalFieldValue> = {};
   if (aicNormalized != null) fields.aic_ka = aicNormalized;
   if (sccrNormalized != null) fields.sccr_ka = sccrNormalized;
+  if (typeof payload.fields.series_rated === "boolean") {
+    fields.series_rated = payload.fields.series_rated;
+  }
   if (payload.fields.voltage) fields.voltage = payload.fields.voltage;
+  if (voltageSystemNormalized != null) {
+    fields.voltage_system_v = voltageSystemNormalized;
+  }
+  if (phaseNormalized != null) fields.phase = phaseNormalized;
+  if (wiresNormalized != null) fields.wires = wiresNormalized;
   if (
     payload.fields.ampacity_a != null &&
     Number.isFinite(payload.fields.ampacity_a)
   ) {
     fields.ampacity_a = payload.fields.ampacity_a;
   }
+  if (
+    typeof payload.fields.main_type === "string" &&
+    payload.fields.main_type.trim().length > 0
+  ) {
+    fields.main_type = payload.fields.main_type.trim().toUpperCase();
+  }
   if (payload.fields.poles != null && Number.isFinite(payload.fields.poles)) {
     fields.poles = payload.fields.poles;
   }
   if (enclosureNormalized) fields.enclosure_nema = enclosureNormalized;
+  // Filter listings down to non-empty trimmed strings; drop the field
+  // entirely when the array would be empty so we don't store noise.
+  if (Array.isArray(payload.fields.listings)) {
+    const cleaned = payload.fields.listings
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (cleaned.length > 0) fields.listings = cleaned;
+  }
   // extraction_notes is bookkeeping, not a rule input — store it alongside
   // the values it explains so debugging an extraction can read directly
   // from submittal_fields without re-running vision.
@@ -192,6 +257,21 @@ export function normalizeSubmittalPayload(
     payload.extraction_notes.trim().length > 0
   ) {
     fields.extraction_notes = payload.extraction_notes.trim();
+  }
+  // Citations API output: store the full page-location array so any
+  // downstream consumer (compare page, finding evidence, audit) can
+  // recover the verifiable text spans Sonnet quoted. Per-field
+  // attachment is a later best-effort lookup, not blocking.
+  //
+  // PASSIVE EVIDENCE ONLY (DECISIONS.md U13). These citations are not
+  // yet a hallucination guard — a field can be persisted even when
+  // nothing in the citations array supports it. The guard requires
+  // restructuring the prompt to give each field an explicit
+  // `evidence_quote` slot so citations attach to verifiable spans, then
+  // a verifier drops fields whose quote has no `cited_text` overlap.
+  // That's the next sub-step before the compare page wires up.
+  if (citations.length > 0) {
+    fields._citations = citations;
   }
 
   return {
@@ -262,8 +342,8 @@ export const parseSubmittalDocument = inngest.createFunction(
       return buf.toString("base64");
     });
 
-    const payload = await step.run("vision-extract", async () => {
-      return memoize<VisionPayload>(
+    const extracted = await step.run("vision-extract", async () => {
+      return memoize<{ payload: VisionPayload; citations: DocumentPageCitation[] }>(
         VISION_CACHE_PURPOSE,
         doc.contentSha256,
         async () => {
@@ -273,13 +353,20 @@ export const parseSubmittalDocument = inngest.createFunction(
             pdf: { mediaType: "application/pdf", data: pdfBuffer },
             ctx: { workspaceId, projectId },
             purpose: "parse_submittal",
+            enableCitations: true,
+            documentTitle: doc.filename,
           });
-          return { payload: result };
+          return {
+            payload: { payload: result.data, citations: result.citations },
+          };
         },
       );
     });
 
-    const normalized = normalizeSubmittalPayload(payload);
+    const normalized = normalizeSubmittalPayload(
+      extracted.payload,
+      extracted.citations,
+    );
 
     if (!normalized.tagNormalized) {
       // Without an equipment tag we can't link the submittal to anything.

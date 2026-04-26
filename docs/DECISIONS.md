@@ -119,7 +119,64 @@ This file is append-only from here. Don't edit historical entries — add a new 
 
 ---
 
+## 2026-04-26 — Decisions update
+
+### U12 — Compare-page extraction: hardcode panelboard expectation set now; spec-checklist parser is the next architectural commitment, not today's
+
+The compare-page demo (per user mock — categorized attribute table with grouped pass/fail counts) requires a per-equipment expectation set. Three plausible sources for that set:
+
+1. **Generic submittal extraction.** Vision call extracts whatever is on the cut sheet; downstream tries to compare against whatever's in the spec. Doesn't scale across equipment types — different submittals expose different field shapes — and can't compute "3/5 pass" because there's no denominator.
+2. **Spec-driven checklist.** Parse the spec into structured `{attribute, comparator, required_value, required_kind}` per CSI section. Submittal extraction targets that checklist. Compare-page rows are *the spec's checklist*; pass-rate is computable.
+3. **Hardcoded per-equipment-type expectation set.** Panelboard = `{aic_ka, sccr_ka, voltage_system_v, phase, wires, ampacity_a, main_type, poles, enclosure_nema, listings, series_rated}`. Switchboard, transformer, etc. each get their own.
+
+**Decision:** spec-driven checklist (#2) is the right long-term shape and the only one that scales. Commit to that schema now. **But** build it in two phases:
+
+**Phase A (today, shipped):** hardcoded panelboard expectation set baked into the submittal vision prompt (`VISION_SYSTEM` in `inngest/functions/parse-submittal.ts`). The compare page renders against this fixed set. Validation moment depends on three moving parts (submittal vision, AIC rule, /today render), not four — spec-checklist parsing isn't on the critical path for the screenshot.
+
+**Phase B (next, blocked on Phase A passing):** build the spec-checklist parser as its own PR. Output shape committed below. `submittal_fields` grows a nullable `spec_requirement_id text` column — additive migration, no destructive changes. The hardcoded expectation set in `VISION_SYSTEM` becomes a deprecation target once checklist coverage is non-zero on the demo project.
+
+**Spec-checklist schema (the architecture commitment):**
+
+```ts
+type SpecChecklistItem = {
+  // Stable id derived from spec source: e.g. "26 24 16/2/4/A:aic_ka"
+  id: string;
+  spec_paragraph_id: uuid;
+  csi_section: string;            // "26 24 16"
+  csi_path: string;               // "26 24 16/2/4/A"
+  attribute: string;              // canonical: "aic_ka" | "sccr_ka" | "enclosure_nema" | ...
+  required_kind: "numeric" | "enum" | "qualitative" | "manufacturer_list";
+  comparator: "≥" | "≤" | "=" | "⊇" | "in";
+  required_value: number | string | string[];
+  // For "qualitative", required_value is the raw spec text — comparison
+  // delegates to the LLM equivalence judge (per the deferred work).
+  raw_quote: string;              // verbatim spec text the requirement was extracted from
+  confidence: number;             // 0..1; calibrated against eval harness
+};
+```
+
+**Why this commitment matters now:** future PRs (Phase B parser, comparator, compare-page rollup query, equivalence judge) all consume this shape. Locking it now lets each PR be built independently against the contract. Without the commitment, every consumer relitigates the schema.
+
+### U13 — Citations API: stored as flat array now; per-field hallucination guard is the next sub-step
+
+Anthropic citations API is wired into `documentExtract` and the submittal parser stores `page_location` citations under `submittal_fields.fields._citations`. Today this is **passive evidence** — citations are recoverable for audit but don't gate the extraction.
+
+**Next sub-step (blocked only on this PR landing):** prompt restructured so each typed field carries an explicit `evidence_quote` slot. Citations API attaches to the quote spans. Verifier drops any field whose evidence quote has no overlapping `cited_text`. That's the actual hallucination guard.
+
+**What we did NOT promise:** the PDF-pane drilldown UI (image 1's mock — coral-highlighted spans inside an embedded PDF viewer) does NOT come for free from citations. Citations give character offsets in *Sonnet's extracted text view*, not bbox coordinates in the rendered PDF. Bridging char offset → pdfjs `getTextContent` range → render-layer overlay is its own ~1-day PR — call it Phase C of the compare-page work, after the per-field hallucination guard and the spec-checklist parser.
+
+### U14 — Compare page replaces chat-based Compare; chat demoted to future "Ask Voltaic" surface
+
+CLAUDE.md's "free-text Q&A with auto-pinned doc panes" Compare design is superseded by the structured per-equipment compliance table per the user mocks (see image 2: grouped attribute rows with pass/fail dots, expand-to-finding-card). Chat capability gets demoted to a future modal/button (`Ask Voltaic`), out of v1 scope.
+
+**Why:** image 2 is the dense, scannable artifact a PM lives in — chat is wow-on-demo but not where work happens. Mocks were validated with the user 2026-04-26.
+
+CLAUDE.md gets updated in the compare-page UI PR.
+
+---
+
 ## Change log
 
 - **2026-04-24** — Initial decisions locked. Authored during kickoff session.
 - **2026-04-25** — Updates U1–U11 added: Textract deferred, rule engine made evidence-source-agnostic, `/today` scope cut, confidence/severity moved to shared modules, spec_drift contradiction split, embedding-preservation encoded, first-finding-on-real-PDF prioritized, precision gate recalibrated, rule #2 discipline gate locked, equipment contract deferred, file made append-only.
+- **2026-04-26** — Updates U12–U14 added: spec-checklist schema committed (Phase A hardcoded panelboard expectation set shipped, Phase B parser deferred), citations API wired as passive evidence (per-field hallucination guard is the next sub-step), compare page replaces chat-based Compare per user mocks.

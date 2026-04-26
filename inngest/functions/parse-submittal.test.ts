@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { DocumentPageCitation } from "@/lib/llm";
 import { normalizeSubmittalPayload } from "./parse-submittal";
 
 const fullPayload = () => ({
@@ -8,10 +9,16 @@ const fullPayload = () => ({
   fields: {
     aic_ka: 65,
     sccr_ka: 65,
+    series_rated: false,
     voltage: "208Y/120V",
+    voltage_system_v: 208,
+    phase: 3,
+    wires: 4,
     ampacity_a: 225,
+    main_type: "MLO",
     poles: 3,
     enclosure_nema: "NEMA 1",
+    listings: ["UL 67"],
   },
   submittal_status: "approved",
   primary_page: 2,
@@ -27,10 +34,16 @@ describe("normalizeSubmittalPayload", () => {
     expect(out.fields).toEqual({
       aic_ka: 65,
       sccr_ka: 65,
+      series_rated: false,
       voltage: "208Y/120V",
+      voltage_system_v: 208,
+      phase: 3,
+      wires: 4,
       ampacity_a: 225,
+      main_type: "MLO",
       poles: 3,
       enclosure_nema: "1",
+      listings: ["UL 67"],
     });
     expect(out.submittalStatus).toBe("approved");
     expect(out.pageNum).toBe(2);
@@ -63,10 +76,16 @@ describe("normalizeSubmittalPayload", () => {
       fields: {
         aic_ka: 42,
         sccr_ka: null,
+        series_rated: null,
         voltage: null,
+        voltage_system_v: null,
+        phase: null,
+        wires: null,
         ampacity_a: null,
+        main_type: null,
         poles: null,
         enclosure_nema: null,
+        listings: null,
       },
     });
     expect(out.fields).toEqual({ aic_ka: 42 });
@@ -124,6 +143,86 @@ describe("normalizeSubmittalPayload", () => {
     });
     expect(out.fields.ampacity_a).toBeUndefined();
     expect(out.fields.poles).toBeUndefined();
+  });
+
+  it("derives voltage_system_v from raw voltage label when the model omits the typed field", () => {
+    const out = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: {
+        ...fullPayload().fields,
+        voltage: "480Y/277V",
+        voltage_system_v: null,
+      },
+    });
+    expect(out.fields.voltage_system_v).toBe(480);
+    expect(out.fields.voltage).toBe("480Y/277V");
+  });
+
+  it("uppercases main_type and trims whitespace", () => {
+    const out = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, main_type: "  mcb  " },
+    });
+    expect(out.fields.main_type).toBe("MCB");
+  });
+
+  it("drops listings when the array is empty or only whitespace", () => {
+    const empty = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, listings: [] },
+    });
+    expect(empty.fields.listings).toBeUndefined();
+    const blank = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, listings: ["", "   "] },
+    });
+    expect(blank.fields.listings).toBeUndefined();
+  });
+
+  it("trims and keeps only non-empty listing strings", () => {
+    const out = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, listings: ["  UL 891  ", "", "UL 67"] },
+    });
+    expect(out.fields.listings).toEqual(["UL 891", "UL 67"]);
+  });
+
+  it("preserves a series_rated boolean (including false) but omits when null", () => {
+    const trueRated = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, series_rated: true },
+    });
+    expect(trueRated.fields.series_rated).toBe(true);
+    const falseRated = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, series_rated: false },
+    });
+    expect(falseRated.fields.series_rated).toBe(false);
+    const nullRated = normalizeSubmittalPayload({
+      ...fullPayload(),
+      fields: { ...fullPayload().fields, series_rated: null },
+    });
+    expect(nullRated.fields.series_rated).toBeUndefined();
+  });
+
+  it("plumbs page_location citations into fields._citations when supplied", () => {
+    const citations: DocumentPageCitation[] = [
+      {
+        type: "page_location",
+        citedText: "AIC: 42 kA RMS @ 480V (series-rated)",
+        documentIndex: 0,
+        documentTitle: "MDP-A_cutsheet.pdf",
+        startPageNumber: 2,
+        endPageNumber: 3,
+      },
+    ];
+    const out = normalizeSubmittalPayload(fullPayload(), citations);
+    expect(out.fields._citations).toEqual(citations);
+  });
+
+  it("omits _citations when none were captured", () => {
+    const out = normalizeSubmittalPayload(fullPayload(), []);
+    expect(out.fields._citations).toBeUndefined();
   });
 
   it("normalizes a tag with mixed separators to the same canonical form", () => {
