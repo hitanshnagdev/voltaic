@@ -24,11 +24,40 @@ function listSql(dir: string) {
     .sort();
 }
 
-async function main() {
+/**
+ * Resolve DATABASE_URL with explicit precedence:
+ *   1. process.env.DATABASE_URL — lets ops do one-shot prod migrations via
+ *      `DATABASE_URL='<prod>' npm run db:migrate` without touching .env.local.
+ *   2. .env.local — the dev default; what `npm run db:migrate` reads bare.
+ *
+ * Logs the masked URL host so the operator can confirm which database
+ * they're about to write to before the script proceeds.
+ */
+function resolveDatabaseUrl(): string {
+  const fromEnv = process.env.DATABASE_URL;
+  if (fromEnv) return fromEnv;
+  if (!existsSync(".env.local")) {
+    throw new Error(
+      "DATABASE_URL not set in process.env and no .env.local present",
+    );
+  }
   const env = readFileSync(".env.local", "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);
-  if (!m) throw new Error("DATABASE_URL not in .env.local");
-  const sql = postgres(m[1], { max: 1 });
+  if (!m) {
+    throw new Error(
+      "DATABASE_URL not set in process.env and not found in .env.local",
+    );
+  }
+  return m[1];
+}
+
+async function main() {
+  const databaseUrl = resolveDatabaseUrl();
+  // Mask credentials when echoing — the operator just needs to confirm
+  // the host (Neon shows distinct hostnames per env).
+  const masked = databaseUrl.replace(/\/\/[^@]+@/, "//***:***@");
+  console.log(`migrator → ${masked}`);
+  const sql = postgres(databaseUrl, { max: 1 });
 
   try {
     await sql.unsafe(`
