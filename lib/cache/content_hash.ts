@@ -23,7 +23,12 @@ export type CachePurpose =
   | "parse_submittal_field"
   | "parse_drawing_annotation"
   | "identity"
-  | "embed";
+  | "embed"
+  // Versioned variants for prompt-driven caches. The version suffix is
+  // a short prompt hash so prompt edits auto-invalidate prior entries
+  // without needing manual cache busts. Format: "<base>/v:<8-12 hex>".
+  // See parse-submittal.ts VISION_CACHE_PURPOSE for the canonical use.
+  | `${string}/v:${string}`;
 
 const keyFor = (purpose: CachePurpose, sha256: string) =>
   `${purpose}:${sha256}`;
