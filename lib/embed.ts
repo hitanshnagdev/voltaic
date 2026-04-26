@@ -1,4 +1,6 @@
 import "server-only";
+import crypto from "node:crypto";
+import { getCached, setCached } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
 import { llmCalls } from "@/lib/db/schema";
 
@@ -97,6 +99,23 @@ function batches<T>(items: T[], size: number): T[][] {
 }
 
 /**
+ * Cache key for one input. Includes model + inputType so a future model
+ * bump or document/query polarity change auto-invalidates without
+ * manual cache busting. Embeddings are deterministic — same key, same
+ * vector, forever.
+ */
+function embedCacheKey(
+  model: string,
+  inputType: EmbedInputType,
+  input: string,
+): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${model}|${inputType}|${input}`)
+    .digest("hex");
+}
+
+/**
  * Embed an array of strings. Returns vectors in the same order as inputs.
  *
  *   const vectors = await embed({
@@ -104,6 +123,13 @@ function batches<T>(items: T[], size: number): T[][] {
  *     ctx: { workspaceId, projectId },
  *   });
  *   // vectors[0] is for "hello"
+ *
+ * Per-input cache: each input is keyed by sha256(model|inputType|text)
+ * and looked up in the shared content-hash cache. Voyage is only called
+ * for cache misses — the typical compare-page render hits the cache for
+ * its broad query, so subsequent renders cost zero Voyage calls. Without
+ * this, the free-tier 3 RPM rate limit makes the page unsustainable
+ * even after reducing per-render fan-out.
  */
 export async function embed(args: {
   inputs: string[];
@@ -116,20 +142,50 @@ export async function embed(args: {
 
   if (args.inputs.length === 0) return [];
 
-  const result: number[][] = new Array(args.inputs.length);
+  // 1. Cache lookup per input. Maintains original-order alignment via
+  //    the result[] slot index.
+  const result: (number[] | null)[] = await Promise.all(
+    args.inputs.map((input) =>
+      getCached<number[]>("embed", embedCacheKey(model, inputType, input)),
+    ),
+  );
 
+  // 2. Collect cache misses (preserving the index back into result[]).
+  const missingIndices: number[] = [];
+  const missingInputs: string[] = [];
+  for (let i = 0; i < args.inputs.length; i++) {
+    if (result[i] == null) {
+      missingIndices.push(i);
+      missingInputs.push(args.inputs[i]);
+    }
+  }
+
+  // 3. Everything cached → no Voyage call at all.
+  if (missingInputs.length === 0) {
+    return result as number[][];
+  }
+
+  // 4. Call Voyage only for misses. Batches of MAX_BATCH preserved.
   let cursor = 0;
-  for (const batch of batches(args.inputs, MAX_BATCH)) {
+  for (const batch of batches(missingInputs, MAX_BATCH)) {
     const start = Date.now();
     let tokensIn: number | null = null;
     let error: string | null = null;
     try {
       const res = await callVoyage({ inputs: batch, model, inputType });
-      // Voyage returns `data` aligned to `index` on the request payload —
-      // sort defensively in case ordering ever changes.
       const sorted = [...res.data].sort((a, b) => a.index - b.index);
       for (let i = 0; i < sorted.length; i++) {
-        result[cursor + i] = sorted[i].embedding;
+        const vec = sorted[i].embedding;
+        const targetIndex = missingIndices[cursor + i];
+        result[targetIndex] = vec;
+        // Persist to cache. Best-effort — a failed write shouldn't
+        // block the caller from getting the vector it just paid for.
+        void setCached<number[]>({
+          purpose: "embed",
+          sha256: embedCacheKey(model, inputType, batch[i]),
+          payload: vec,
+          tokenCost: tokensIn ?? undefined,
+        }).catch(() => {});
       }
       tokensIn = res.usage?.total_tokens ?? null;
     } catch (e) {
@@ -138,8 +194,6 @@ export async function embed(args: {
     } finally {
       const latencyMs = Date.now() - start;
       const cost = tokensIn != null ? costUsd(model, tokensIn) : null;
-      // Best-effort: if logging fails we still want the embed call to
-      // surface (or already have surfaced) its real error.
       try {
         await db.insert(llmCalls).values({
           workspaceId: args.ctx.workspaceId,
@@ -153,7 +207,12 @@ export async function embed(args: {
           costUsd: cost != null ? cost.toString() : null,
           latencyMs,
           error: error ?? null,
-          meta: { batchSize: batch.length, inputType },
+          meta: {
+            batchSize: batch.length,
+            inputType,
+            cacheMisses: missingInputs.length,
+            cacheHits: args.inputs.length - missingInputs.length,
+          },
         });
       } catch {
         // swallow — log failures shouldn't mask the real outcome.
@@ -162,5 +221,5 @@ export async function embed(args: {
     cursor += batch.length;
   }
 
-  return result;
+  return result as number[][];
 }
