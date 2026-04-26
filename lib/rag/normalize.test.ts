@@ -3,6 +3,9 @@ import {
   normalizeAicKa,
   normalizeEquipmentTag,
   normalizeNemaRating,
+  normalizePhase,
+  normalizeVoltageSystemV,
+  normalizeWires,
 } from "./normalize";
 
 describe("normalizeEquipmentTag", () => {
@@ -126,5 +129,89 @@ describe("normalizeNemaRating", () => {
     expect(normalizeNemaRating(null)).toBeNull();
     expect(normalizeNemaRating("")).toBeNull();
     expect(normalizeNemaRating("rating not specified")).toBeNull();
+  });
+});
+
+describe("normalizeVoltageSystemV", () => {
+  it("passes through standard system voltages as integers", () => {
+    expect(normalizeVoltageSystemV(208)).toBe(208);
+    expect(normalizeVoltageSystemV(480)).toBe(480);
+  });
+
+  it("extracts line-to-line value from wye notation", () => {
+    expect(normalizeVoltageSystemV("480Y/277V")).toBe(480);
+    expect(normalizeVoltageSystemV("208Y/120V")).toBe(208);
+  });
+
+  it("extracts line-to-line from slash notation without 'Y'", () => {
+    expect(normalizeVoltageSystemV("480/277")).toBe(480);
+  });
+
+  it("parses bare numbers with V/VAC suffix", () => {
+    expect(normalizeVoltageSystemV("240V")).toBe(240);
+    expect(normalizeVoltageSystemV("600 VAC")).toBe(600);
+  });
+
+  it("rejects implausibly small or large voltages", () => {
+    expect(normalizeVoltageSystemV(12)).toBeNull();
+    expect(normalizeVoltageSystemV(5000)).toBeNull();
+  });
+
+  it("returns null on null / empty / non-voltage text", () => {
+    expect(normalizeVoltageSystemV(null)).toBeNull();
+    expect(normalizeVoltageSystemV("")).toBeNull();
+    expect(normalizeVoltageSystemV("not specified")).toBeNull();
+  });
+
+  it("rounds non-integer numerics", () => {
+    expect(normalizeVoltageSystemV(479.7)).toBe(480);
+  });
+});
+
+describe("normalizePhase", () => {
+  it("passes through 1 and 3", () => {
+    expect(normalizePhase(1)).toBe(1);
+    expect(normalizePhase(3)).toBe(3);
+  });
+
+  it("rejects 2 (historical curiosity, not real-world)", () => {
+    expect(normalizePhase(2)).toBeNull();
+  });
+
+  it("parses '3-phase', '3φ', '1-phase' string forms", () => {
+    expect(normalizePhase("3-phase")).toBe(3);
+    expect(normalizePhase("3φ")).toBe(3);
+    expect(normalizePhase("1-phase")).toBe(1);
+  });
+
+  it("returns null on null / empty / nonsense", () => {
+    expect(normalizePhase(null)).toBeNull();
+    expect(normalizePhase("")).toBeNull();
+    expect(normalizePhase("polyphase")).toBeNull();
+  });
+});
+
+describe("normalizeWires", () => {
+  it("passes through 2, 3, and 4", () => {
+    expect(normalizeWires(2)).toBe(2);
+    expect(normalizeWires(3)).toBe(3);
+    expect(normalizeWires(4)).toBe(4);
+  });
+
+  it("rejects values outside the 2-4 distribution range", () => {
+    expect(normalizeWires(1)).toBeNull();
+    expect(normalizeWires(5)).toBeNull();
+  });
+
+  it("parses '4w', '4-wire' string forms", () => {
+    expect(normalizeWires("4w")).toBe(4);
+    expect(normalizeWires("4-wire")).toBe(4);
+    expect(normalizeWires("3-wire delta")).toBe(3);
+  });
+
+  it("returns null on null / empty / no number", () => {
+    expect(normalizeWires(null)).toBeNull();
+    expect(normalizeWires("")).toBeNull();
+    expect(normalizeWires("delta")).toBeNull();
   });
 });

@@ -88,6 +88,97 @@ export function normalizeAicKa(raw: string | null | undefined): number | null {
 }
 
 /**
+ * Canonicalize the line-to-line system voltage.
+ *
+ * Accepts either an already-numeric value from the model or a raw
+ * voltage label and extracts the integer line-to-line value:
+ *
+ *   480           → 480
+ *   "480Y/277V"   → 480     (wye — line-to-line = 480)
+ *   "208Y/120V"   → 208
+ *   "240V"        → 240
+ *   "480/277"     → 480
+ *   "600 VAC"     → 600
+ *
+ * Returns one of the standard system voltages (208 | 240 | 277 | 480 | 600)
+ * when present, otherwise the parsed integer if it looks plausible
+ * (50 ≤ v ≤ 1000), otherwise null. The standard-voltage clamp catches
+ * cases where the model returns the line-to-neutral value (120, 277)
+ * for a wye system; we keep them since a 277V single-phase load is real.
+ */
+export function normalizeVoltageSystemV(
+  raw: number | string | null | undefined,
+): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    const n = Math.round(raw);
+    return n >= 50 && n <= 1000 ? n : null;
+  }
+  const text = raw.trim();
+  if (!text) return null;
+
+  // Wye notation "<LL>Y/<LN>V" — take the LL value (the first number).
+  const wye = text.match(/(\d{2,4})\s*Y\s*\/\s*\d{2,4}/i);
+  if (wye) {
+    const n = Number(wye[1]);
+    if (Number.isFinite(n) && n >= 50 && n <= 1000) return n;
+  }
+
+  // Slash-separated "<LL>/<LN>" — take the LL value.
+  const slash = text.match(/(\d{2,4})\s*\/\s*\d{2,4}/);
+  if (slash) {
+    const n = Number(slash[1]);
+    if (Number.isFinite(n) && n >= 50 && n <= 1000) return n;
+  }
+
+  // Bare number with optional V/VAC suffix.
+  const bare = text.match(/(\d{2,4})\s*(?:V(?:AC)?)?/i);
+  if (bare) {
+    const n = Number(bare[1]);
+    if (Number.isFinite(n) && n >= 50 && n <= 1000) return n;
+  }
+
+  return null;
+}
+
+/**
+ * Canonicalize phase to integer 1 or 3. Real electrical equipment is
+ * single-phase or three-phase; "2-phase" is a historical curiosity not
+ * worth modeling. Anything else returns null.
+ */
+export function normalizePhase(
+  raw: number | string | null | undefined,
+): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    return raw === 1 || raw === 3 ? raw : null;
+  }
+  const m = raw.match(/(\d+)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n === 1 || n === 3 ? n : null;
+}
+
+/**
+ * Canonicalize wire count to integer 2, 3, or 4. (Single-phase 2-wire,
+ * single-phase 3-wire / three-phase 3-wire delta, three-phase 4-wire
+ * wye are the only real-world distributions.)
+ */
+export function normalizeWires(
+  raw: number | string | null | undefined,
+): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    return raw === 2 || raw === 3 || raw === 4 ? raw : null;
+  }
+  const m = raw.match(/(\d+)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n === 2 || n === 3 || n === 4 ? n : null;
+}
+
+/**
  * Canonicalize a NEMA enclosure rating string.
  *
  *   "NEMA 3R"       → "3R"
