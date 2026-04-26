@@ -12,40 +12,35 @@ export type RasterPage = { pageNum: number; png: Buffer };
  *
  * History:
  *   v1 — initial 1568px raster (PR #20)
- *   v2 — bundled fonts + cmaps (PR #24-#26): the "black boxes" version
- *        produced answers like "heavily redacted/obscured" because
- *        glyphs rendered as solid rectangles. Subsequent fixes finally
- *        produced readable text. Bumping invalidates any vision cache
- *        captured under v1 prompts against v1 rasters.
+ *   v2 — added bundled fonts + cmaps URLs (PRs #24-#26). Did not
+ *        actually fix rendering on Vercel because pdfjs-dist's
+ *        node_utils_fetchData calls fs.readFile(url) with a string
+ *        like "file:///..." which Node interprets as a literal path
+ *        and fails with ENOENT. The "redacted/obscured" extraction
+ *        notes from production confirmed this — vision was reading
+ *        glyph-as-box renders.
+ *   v3 — custom BinaryDataFactory that converts file:// URLs to
+ *        real filesystem paths via fileURLToPath before calling fs.
+ *        This is the first version that actually loads pdfjs's
+ *        bundled standard fonts on a Vercel/Linux runtime where
+ *        fontconfig has no fallback.
  */
-export const RASTER_RENDERER_VERSION = "v2";
+export const RASTER_RENDERER_VERSION = "v3";
 
 /**
  * Resolve pdfjs-dist's bundled font + cmap directories as file:// URLs.
  *
- * Why we need these at all: pdfjs's renderer needs standard fonts to
- * substitute for any glyphs the PDF doesn't embed. Without them on
- * Node serverless (no fontconfig, no system fonts), every glyph
- * renders as a solid black rectangle. Sonnet vision sees boxes,
- * returns null, the rule never fires. CONFIRMED in production via
- * extraction_notes from the demo submittal: "heavily redacted/
- * obscured with black blocks covering all text content."
+ * pdfjs's renderer needs standard fonts to substitute for any glyphs
+ * the PDF doesn't embed. Without them on a Node runtime that has no
+ * fontconfig (Vercel/Linux serverless), every glyph renders as a
+ * solid black rectangle. Vision sees boxes, returns null fields, the
+ * rule never fires.
  *
- * Why we DON'T use createRequire(import.meta.url).resolve(): Turbopack
- * intercepts require.resolve calls in code that goes through its
- * transform pipeline — which raster.ts does, even with
- * `serverExternalPackages` set in next.config.ts and even when the
- * call is deferred to runtime. The "resolved" path it returns is a
- * numeric module ID (e.g. 55876), not a filesystem path. dirname()
- * then throws "path argument must be of type string". Verified twice
- * — once at build, once at runtime on Vercel — both with different
- * module IDs.
- *
- * Why process.cwd() works: it's a Node runtime call that the bundler
- * doesn't shim. On Vercel serverless, cwd is the function root
- * (typically /var/task), and serverExternalPackages ensures
- * node_modules/pdfjs-dist is installed there as a real npm package
- * with its standard_fonts/ and cmaps/ directories intact.
+ * Path resolution: process.cwd() is a runtime call the Turbopack
+ * bundler doesn't shim, and `serverExternalPackages` ensures the
+ * pdfjs-dist package ships intact at /var/task/node_modules/pdfjs-dist
+ * on Vercel. We avoid createRequire(import.meta.url).resolve() because
+ * Turbopack rewrites that into a numeric module ID at runtime.
  */
 async function resolveBundledAssetUrls(): Promise<{
   standardFontDataUrl: string;
@@ -60,6 +55,67 @@ async function resolveBundledAssetUrls(): Promise<{
     ).toString(),
     cMapUrl: pathToFileURL(join(root, "cmaps/")).toString(),
   };
+}
+
+/**
+ * Custom BinaryDataFactory that fixes pdfjs-dist v5's broken Node font
+ * loader.
+ *
+ * The bug: pdfjs-dist's NodeBinaryDataFactory calls
+ *   fs.promises.readFile(url)
+ * where `url` is a string like "file:///var/task/node_modules/.../Foxit.pfb"
+ * built by concatenating standardFontDataUrl + filename. Node's
+ * fs.readFile, when given a string, treats it as a literal filesystem
+ * path — so it tries to open a file named "file:///..." and fails
+ * with ENOENT. pdfjs catches the error, wraps it as "Unable to load
+ * font data at: ...", and falls through to glyph-as-box rendering.
+ *
+ * Verified in a one-liner:
+ *   await fs.readFile("file:///valid/path/file.pfb")    // ENOENT
+ *   await fs.readFile(new URL("file:///.../file.pfb"))  // works
+ *   await fs.readFile("/valid/path/file.pfb")           // works
+ *
+ * Workaround: pass our own BinaryDataFactory class that mirrors
+ * BaseBinaryDataFactory's interface but routes file:// URLs through
+ * fileURLToPath() before fs.readFile. Wraps the bug without depending
+ * on pdfjs internals beyond the documented constructor + fetch shape.
+ *
+ * Symptom this resolves: production extraction_notes saying images
+ * are "heavily redacted/obscured with black blocks" or rendered in
+ * an "unreadable encoded font" — exactly what bare-glyph rendering
+ * produces when font data is missing.
+ */
+class FsBinaryDataFactory {
+  cMapUrl: string | null;
+  standardFontDataUrl: string | null;
+  wasmUrl: string | null;
+  constructor(opts: {
+    cMapUrl?: string | null;
+    standardFontDataUrl?: string | null;
+    wasmUrl?: string | null;
+  }) {
+    this.cMapUrl = opts.cMapUrl ?? null;
+    this.standardFontDataUrl = opts.standardFontDataUrl ?? null;
+    this.wasmUrl = opts.wasmUrl ?? null;
+  }
+  async fetch({
+    kind,
+    filename,
+  }: {
+    kind: "cMapUrl" | "standardFontDataUrl" | "wasmUrl";
+    filename: string;
+  }): Promise<Uint8Array> {
+    const baseUrl = this[kind];
+    if (!baseUrl) {
+      throw new Error(`Ensure that the \`${kind}\` API parameter is provided.`);
+    }
+    const url = `${baseUrl}${filename}`;
+    const fs = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const filePath = url.startsWith("file://") ? fileURLToPath(url) : url;
+    const data = await fs.readFile(filePath);
+    return new Uint8Array(data);
+  }
 }
 
 /**
@@ -131,18 +187,18 @@ export async function rasterPdf(
 
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buf),
-    // @ts-expect-error disableWorker is valid at runtime but not in types
     disableWorker: true,
-    // useSystemFonts: false — Vercel's serverless runtime has no installed
-    // OS fonts and no fontconfig, so anything that depends on system fonts
-    // fails silently and pdfjs renders text as solid black rectangles.
-    // Provide pdfjs-dist's bundled standard fonts and cmaps instead.
     useSystemFonts: false,
     standardFontDataUrl,
     cMapUrl,
     cMapPacked: true,
     isEvalSupported: false,
-  });
+    // pdfjs accepts a custom BinaryDataFactory. Pass our own that
+    // routes file:// URLs through fileURLToPath before fs.readFile —
+    // pdfjs's bundled NodeBinaryDataFactory passes URL *strings* to
+    // fs.readFile which Node treats as literal paths and fails.
+    BinaryDataFactory: FsBinaryDataFactory,
+  } as Parameters<typeof pdfjs.getDocument>[0]);
   const doc = await loadingTask.promise;
   const out: RasterPage[] = [];
 
