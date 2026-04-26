@@ -73,7 +73,21 @@ type Row = Omit<RetrievedAtom, "score" | "ranks" | "sourceKind"> & {
 function buildFilterFragments(filters: RetrieveFilters | undefined) {
   // Returns SQL fragments inlined into both BM25 and vector queries via
   // the same WHERE clause so each leg sees an identical candidate pool.
-  const clauses = [sql`p.project_id = pid`];
+  //
+  // The leading clause (`p.project_id = pid.id`) is redundant with the
+  // explicit `JOIN pid ON p.project_id = pid.id` in each leg's SQL —
+  // we keep it to (a) preserve the previous shape of the WHERE for
+  // anyone reading these legs out of context, and (b) guarantee the
+  // `clauses` list is non-empty so `sql.join(clauses, " AND ")` never
+  // produces a trailing AND.
+  //
+  // Earlier this referenced bare `pid` rather than `pid.id`, which
+  // Postgres rejects with "operator does not exist: uuid = record".
+  // The rule engine never observed that bug in production because it
+  // had never reached retrieve() successfully — every prior failure
+  // upstream (Path2D, font rendering, missing migration) short-
+  // circuited before retrieve ran.
+  const clauses = [sql`p.project_id = pid.id`];
   if (filters?.csiSection) {
     clauses.push(sql`p.csi_section = ${filters.csiSection}`);
   }
