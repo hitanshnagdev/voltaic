@@ -68,6 +68,55 @@ describe("extractRequiredKaFromSpec", () => {
   it("ignores values that aren't kA (e.g. raw amperes without AIC marker)", () => {
     expect(extractRequiredKaFromSpec("400 A frame")).toBeNull();
   });
+
+  // UFGS / DoD / NASA master-spec convention: AIC label upstream in
+  // paragraph, number expressed as Amps later. Real example from the demo
+  // bundle: "Interrupting Rating of Overcurrent Devices (AIC): Not less
+  // than 65,000 A at 480 V, RMS symmetrical, per UL 489."
+  it("extracts amps-form value when AIC label is upstream in same paragraph", () => {
+    expect(
+      extractRequiredKaFromSpec(
+        "Interrupting Rating of Overcurrent Devices (AIC): Not less than 65,000 A at 480 V, RMS symmetrical.",
+      ),
+    ).toBe(65);
+  });
+
+  it("extracts amps-form value with 'interrupting rating' context", () => {
+    expect(
+      extractRequiredKaFromSpec("interrupting rating of 42,000 A symmetrical"),
+    ).toBe(42);
+  });
+
+  it("ignores frame-size amps even with AIC context elsewhere", () => {
+    // 400 A is a frame size, not an AIC. AIC realistic range starts at
+    // 5,000 A. Without thousands separators or kA suffix, "400 A frame"
+    // should not be misread as an AIC value.
+    expect(
+      extractRequiredKaFromSpec(
+        "Provide 400 A frame breakers with AIC rating per Article 2.2.",
+      ),
+    ).toBeNull();
+  });
+
+  it("treats unrealistically high amperes as out of range (motor stall etc.)", () => {
+    // 200,000+ A is realistic only for medium-voltage / motor-stall
+    // calculations, not panelboard AIC. Out of range, drop.
+    expect(
+      extractRequiredKaFromSpec(
+        "interrupting rating shall handle 500,000 A bolted-fault stall current",
+      ),
+    ).toBeNull();
+  });
+
+  it("prefers the highest value when both kA and Amps forms are present", () => {
+    // Common in panelboard schedules: "65 kA @ 480V" plus elsewhere
+    // "minimum 22,000 A interrupting at branches".
+    expect(
+      extractRequiredKaFromSpec(
+        "Distribution: 65 kA @ 480V. Branch circuit interrupting: 22,000 A at 240V.",
+      ),
+    ).toBe(65);
+  });
 });
 
 describe("evaluateAic", () => {

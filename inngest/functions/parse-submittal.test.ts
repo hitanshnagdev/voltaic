@@ -134,4 +134,31 @@ describe("normalizeSubmittalPayload", () => {
     expect(new Set(normalized).size).toBe(1);
     expect(normalized[0]).toBe("MDPA");
   });
+
+  it("plumbs extraction_notes through the normalized fields bag for debugging", () => {
+    const out = normalizeSubmittalPayload({
+      ...fullPayload(),
+      // Vision asked to explain its reasoning when a deviation table or
+      // multi-voltage table is involved. We persist that into the fields
+      // jsonb so an engineer can audit a finding without re-running vision.
+      extraction_notes:
+        "AIC and SCCR extracted from page 2 deviation table's Submitted column. Specified column showed 65 kA; submitted value is 42 kA.",
+    });
+    expect(out.fields.extraction_notes).toBe(
+      "AIC and SCCR extracted from page 2 deviation table's Submitted column. Specified column showed 65 kA; submitted value is 42 kA.",
+    );
+  });
+
+  it("omits extraction_notes when the model didn't supply one", () => {
+    const out = normalizeSubmittalPayload(fullPayload());
+    expect(out.fields.extraction_notes).toBeUndefined();
+  });
+
+  it("trims whitespace-only extraction_notes rather than persisting empty noise", () => {
+    const out = normalizeSubmittalPayload({
+      ...fullPayload(),
+      extraction_notes: "   \n  ",
+    });
+    expect(out.fields.extraction_notes).toBeUndefined();
+  });
 });
