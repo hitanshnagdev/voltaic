@@ -97,6 +97,27 @@ CRITICAL: never invent values that are not visually present. Use null when uncer
 
 Return JSON only, no prose outside the JSON.`;
 
+/**
+ * Cache key for vision extraction, with a prompt-hash suffix so any change
+ * to VISION_SYSTEM auto-invalidates prior cache entries for this purpose.
+ *
+ * The hash_cache layer memoizes on (purpose, content_sha256). Without the
+ * prompt hash in the purpose, edits to the prompt silently get masked by
+ * stale cache hits on PDFs that were processed under the old prompt —
+ * the new prompt never runs and we can't tell. With the hash, an old
+ * cache entry is keyed `parse_submittal_field/v:<old-hash>` and a new
+ * call uses `parse_submittal_field/v:<new-hash>`; they don't collide.
+ *
+ * Storage cost: each prompt revision leaves an old cache entry behind,
+ * but they're scoped to the same content_sha256 they were originally
+ * computed for, and the hash_cache table is tiny by construction.
+ */
+const VISION_CACHE_PURPOSE: `parse_submittal_field/v:${string}` = `parse_submittal_field/v:${crypto
+  .createHash("sha256")
+  .update(VISION_SYSTEM)
+  .digest("hex")
+  .slice(0, 12)}`;
+
 type VisionPayload = {
   equipment_tag: string | null;
   vendor: string | null;
@@ -242,7 +263,7 @@ export const parseSubmittalDocument = inngest.createFunction(
 
     const payload = await step.run("vision-extract", async () => {
       return memoize<VisionPayload>(
-        "parse_submittal_field",
+        VISION_CACHE_PURPOSE,
         doc.contentSha256,
         async () => {
           const images = await Promise.all(
