@@ -69,3 +69,46 @@ export type AicTriple = {
   /** Project-wide fallback used only when no spec requirement is found. */
   projectFaultCurrentKa: number | null;
 };
+
+/**
+ * SCCR rule input — same shape as AicTriple but different semantics.
+ * SCCR (short-circuit current rating) measures the bus assembly's
+ * withstand current; AIC measures breaker interrupting capacity. Both
+ * compare against project fault current as a fallback because both
+ * defend the equipment against the same upstream short-circuit
+ * condition. specRequirements are atoms tagged requirement_type='sccr'.
+ */
+export type SccrTriple = {
+  equipment: {
+    id: string;
+    tag: string | null;
+    submittedSccrKa: number | null;
+    submittedSourceId: string | null;
+    submittedDocumentId: string | null;
+    submittedPageNum: number | null;
+  };
+  specRequirements: RetrievedAtom[];
+  projectFaultCurrentKa: number | null;
+};
+
+/**
+ * Enclosure rule input. Different shape from AIC/SCCR — the comparator
+ * is NEMA hierarchy (⊇), not numeric ≥, and there is NO project-wide
+ * fallback (without a spec callout, no rule fires).
+ *
+ * specRequirements are atoms tagged requirement_type='enclosure'. The
+ * rule extracts the required NEMA code (e.g. "3R") from the spec text
+ * and checks the submitted NEMA code is at least as protective.
+ */
+export type EnclosureTriple = {
+  equipment: {
+    id: string;
+    tag: string | null;
+    /** Submitted NEMA code, normalized: "1" | "3R" | "4" | "4X" | "12". */
+    submittedNema: string | null;
+    submittedSourceId: string | null;
+    submittedDocumentId: string | null;
+    submittedPageNum: number | null;
+  };
+  specRequirements: RetrievedAtom[];
+};
