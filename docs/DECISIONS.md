@@ -175,8 +175,41 @@ CLAUDE.md gets updated in the compare-page UI PR.
 
 ---
 
+### U15 — Freeze: no new under-the-hood work until /compare renders real data
+
+**The pattern this rule defends against.** The 2026-04-26 session shipped 3400+ LOC across PRs #31, #32, #33 — submittal field expansion, citations API + per-field hallucination guard, SCCR + enclosure rules — and zero UI. The screenshot a design partner sees is unchanged. Each PR was individually defensible; the compounding pattern was the bug. Real-time awareness ("we're stacking infrastructure before UI") didn't stop it. Vigilance loses to flow state. The defense has to be structural.
+
+**The freeze.** No new rule infrastructure ships until `/compare` is in prod and renders real data. Specifically prohibited until then:
+- New rules (rule #4: ampacity / coordination / spec_drift)
+- Hardening of existing rules (NEMA partial-order fix, AIC requirement-extraction edge cases)
+- Hardening of citation guard (per-field attachment, threshold tuning, hallucination retry)
+- New parser passes (spec-checklist extractor — Phase B per U12)
+- Refactors of existing infrastructure (the three-clones factor noted in #33)
+
+**Bug fixes are exempt.** A real bug — wrong verdict on demo PDF, broken ingest, regression — overrides the freeze. The freeze targets *forward investment*, not *defending what shipped*.
+
+**Unfreeze condition (concrete, not squishy).** All three must be true:
+1. `/compare` is deployed to production (`voltaic-ten.vercel.app/compare` accessible).
+2. The page reads from `submittal_fields` directly — no mock data, no fixtures.
+3. The page renders the demo project's actually-extracted attributes against the hardcoded panelboard requirement set, with verdicts visible per row.
+
+**Once unfrozen, the next decision is data-driven, not aesthetic.** Look at what the rendered page exposes about the demo project. If equality checks across the panelboard rows produce zero interesting output, the rule engine isn't the bottleneck — extraction is. If they produce interesting output, the shell is validated and we pick the next deepening based on what's actually missing, not what would be elegant.
+
+### U16 — PR size cap: ~500 LOC, soft target
+
+**The cap.** PRs target ~500 LOC including tests. Crossing the cap isn't a hard block; it's the prompt to ask "do I still need the next part?" before continuing.
+
+**Why this matters.** PR #33 was 1900 LOC. That's the bug. Large PRs remove the natural checkpoint where reality-check happens. Smaller PRs give the escape hatch when the goal shifts mid-work — which is precisely when over-investment compounds.
+
+**Tests count toward the cap.** Yes — but the intent isn't "less testing per scope," it's "smaller scope per PR." When tests balloon a PR past 500, that's the signal to split the PR by feature, not to skip tests.
+
+**Doesn't apply to.** Mechanical refactors (rename, move file), generated code (drizzle migrations, lockfile bumps), and review-time fixups can exceed the cap freely.
+
+---
+
 ## Change log
 
 - **2026-04-24** — Initial decisions locked. Authored during kickoff session.
 - **2026-04-25** — Updates U1–U11 added: Textract deferred, rule engine made evidence-source-agnostic, `/today` scope cut, confidence/severity moved to shared modules, spec_drift contradiction split, embedding-preservation encoded, first-finding-on-real-PDF prioritized, precision gate recalibrated, rule #2 discipline gate locked, equipment contract deferred, file made append-only.
 - **2026-04-26** — Updates U12–U14 added: spec-checklist schema committed (Phase A hardcoded panelboard expectation set shipped, Phase B parser deferred), citations API wired as passive evidence (per-field hallucination guard is the next sub-step), compare page replaces chat-based Compare per user mocks.
+- **2026-04-26 (later)** — Updates U15–U16 added: freeze on new under-the-hood work until /compare renders real data (defense against the build → realize overbuilt → correct → overbuild loop the day exhibited), and a soft ~500 LOC PR-size cap as a forcing function for mid-work reality checks.

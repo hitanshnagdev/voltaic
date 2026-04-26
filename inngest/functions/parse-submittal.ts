@@ -579,6 +579,18 @@ export const parseSubmittalDocument = inngest.createFunction(
         data: { equipmentId, workspaceId, projectId, documentId },
       });
     }
+    if (normalized.fields.sccr_ka != null) {
+      await step.sendEvent("emit-sccr-ready", {
+        name: "equipment/sccr-ready",
+        data: { equipmentId, workspaceId, projectId, documentId },
+      });
+    }
+    if (normalized.fields.enclosure_nema != null) {
+      await step.sendEvent("emit-enclosure-ready", {
+        name: "equipment/enclosure-ready",
+        data: { equipmentId, workspaceId, projectId, documentId },
+      });
+    }
 
     return {
       documentId,
