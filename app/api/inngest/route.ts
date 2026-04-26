@@ -5,6 +5,7 @@ import { analyzeProject } from "@/inngest/functions/analyze-project";
 import { analyzeSccr } from "@/inngest/functions/analyze-sccr";
 import { embedSpecParagraphs } from "@/inngest/functions/embed-spec-paragraphs";
 import { ingestDocument } from "@/inngest/functions/ingest-document";
+import { parseSpecChecklist } from "@/inngest/functions/parse-spec-checklist";
 import { parseSpecDocument } from "@/inngest/functions/parse-spec";
 import { parseSubmittalDocument } from "@/inngest/functions/parse-submittal";
 
@@ -16,6 +17,7 @@ export const { GET, POST, PUT } = serve({
   functions: [
     ingestDocument,
     parseSpecDocument,
+    parseSpecChecklist,
     parseSubmittalDocument,
     embedSpecParagraphs,
     analyzeProject,

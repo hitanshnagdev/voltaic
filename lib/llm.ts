@@ -76,8 +76,16 @@ export async function classify<T>(args: {
   model?: string;
   ctx: LogCtx;
   maxTokens?: number;
+  /**
+   * Cost-log purpose. Defaults to "classify" — the original use case
+   * was Haiku doc-type classification. Pass "parse_spec" for spec
+   * checklist extraction, "finding_interpretive" for rule overlays,
+   * etc., so the cost meter separates spend correctly.
+   */
+  purpose?: Purpose;
 }): Promise<T> {
   const model = args.model ?? "claude-haiku-4-5";
+  const purpose = args.purpose ?? "classify";
   const start = Date.now();
   try {
     const res = await anthropic().messages.create({
@@ -96,7 +104,7 @@ export async function classify<T>(args: {
       ctx: args.ctx,
       provider: "anthropic",
       model,
-      purpose: "classify",
+      purpose,
       tokensIn: res.usage.input_tokens,
       tokensOut: res.usage.output_tokens,
       latencyMs,
@@ -109,7 +117,7 @@ export async function classify<T>(args: {
       ctx: args.ctx,
       provider: "anthropic",
       model,
-      purpose: "classify",
+      purpose,
       latencyMs,
       error: msg,
     });
