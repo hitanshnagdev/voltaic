@@ -74,20 +74,15 @@ function buildFilterFragments(filters: RetrieveFilters | undefined) {
   // Returns SQL fragments inlined into both BM25 and vector queries via
   // the same WHERE clause so each leg sees an identical candidate pool.
   //
-  // The leading clause (`p.project_id = pid.id`) is redundant with the
-  // explicit `JOIN pid ON p.project_id = pid.id` in each leg's SQL —
-  // we keep it to (a) preserve the previous shape of the WHERE for
-  // anyone reading these legs out of context, and (b) guarantee the
-  // `clauses` list is non-empty so `sql.join(clauses, " AND ")` never
-  // produces a trailing AND.
-  //
-  // Earlier this referenced bare `pid` rather than `pid.id`, which
-  // Postgres rejects with "operator does not exist: uuid = record".
-  // The rule engine never observed that bug in production because it
-  // had never reached retrieve() successfully — every prior failure
-  // upstream (Path2D, font rendering, missing migration) short-
-  // circuited before retrieve ran.
-  const clauses = [sql`p.project_id = pid.id`];
+  // Project scoping is handled by each leg's `JOIN documents d ON d.id =
+  // p.document_id` plus `WHERE d.project_id = pid.id` — spec_paragraphs
+  // has NO project_id column, only document_id (per lib/db/schema.ts).
+  // Earlier versions of this function tried to filter on p.project_id
+  // directly and threw at runtime ("column p.project_id does not
+  // exist"). The clauses list always starts with a tautology (`TRUE`)
+  // so `sql.join` never produces a trailing AND when only the leading
+  // join+filter applies.
+  const clauses = [sql`TRUE`];
   if (filters?.csiSection) {
     clauses.push(sql`p.csi_section = ${filters.csiSection}`);
   }
@@ -140,9 +135,11 @@ export async function retrieve(
       p.content,
       ts_rank(p.content_tsv, q.tsq) AS score
     FROM spec_paragraphs p
+    JOIN documents d ON d.id = p.document_id
     CROSS JOIN q
-    JOIN pid ON p.project_id = pid.id
+    CROSS JOIN pid
     WHERE p.content_tsv @@ q.tsq
+      AND d.project_id = pid.id
       AND ${where}
     ORDER BY score DESC
     LIMIT ${candidatesPerLeg}
@@ -171,8 +168,10 @@ export async function retrieve(
       p.content,
       1 - (p.embedding <=> ${vecLiteral}::vector) AS score
     FROM spec_paragraphs p
-    JOIN pid ON p.project_id = pid.id
+    JOIN documents d ON d.id = p.document_id
+    CROSS JOIN pid
     WHERE p.embedding IS NOT NULL
+      AND d.project_id = pid.id
       AND ${where}
     ORDER BY p.embedding <=> ${vecLiteral}::vector
     LIMIT ${candidatesPerLeg}
