@@ -50,33 +50,52 @@ type SubmittalClassifiedEvent = {
 /** How many leading raster pages to send to vision. */
 const MAX_PAGES_TO_VISION = 4;
 
-const VISION_SYSTEM = `You are extracting structured values from a vendor electrical equipment cut sheet ("submittal").
+const VISION_SYSTEM = `You are extracting structured electrical equipment data from a vendor submittal package (cut sheet, datasheet, or product data sheet).
 
-Identify exactly one piece of equipment described by these pages and extract its fields. Return JSON ONLY in this exact shape:
+The submittal is for ONE piece of equipment that the contractor is proposing to install. Your job: identify the equipment and extract its key electrical ratings as the contractor IS SUBMITTING them — not as the spec required them.
+
+DISAMBIGUATION RULES (this is the hard part — read carefully):
+
+1. Deviation tables. Many submittals contain a comparison table with columns titled some variation of:
+     - "Specified" / "Required" / "Per Spec" / "Spec" — what the spec asked for
+     - "Submitted" / "Proposed" / "Provided" / "Furnished" — what the contractor is delivering
+   Always extract numeric fields from the SUBMITTED column. The Specified column reflects the spec's requirement (we get that elsewhere); the Submitted column reflects what is actually being supplied. These are often the same, but sometimes they differ — and that difference is exactly what downstream rules need to detect.
+   If you see "Conforms? Yes/No" columns next to the values, those are decision columns — ignore them, just extract the Submitted value.
+
+2. AIC vs SCCR. These are different ratings, often shown in the same table:
+     - AIC (Available Interrupting Current / Interrupting Rating) is the rating of OVERCURRENT DEVICES — circuit breakers, fuses. It governs how much fault current they can safely interrupt.
+     - SCCR (Short-Circuit Current Rating) is the rating of the BUS ASSEMBLY — what the panelboard or switchboard structure can withstand.
+     - "Bus bracing" ratings are SCCR, NOT AIC.
+   Extract aic_ka from breaker/overcurrent device interrupting ratings. Extract sccr_ka from bus / panel-assembly withstand ratings. If the document only shows one number labeled both ways (rare), it's typically the SCCR; leave aic_ka null.
+
+3. Multi-voltage tables. Some breakers are rated at different AICs at different system voltages (e.g., 100 kA at 240V, 65 kA at 480V). Extract the AIC at the equipment's primary system voltage — usually labeled "Nominal System Voltage", "System Voltage", or stated on the cover page. If the equipment is wye-connected (e.g. "480Y/277V"), use the line-to-line voltage (480V).
+
+4. Multi-equipment cut sheets. If the document covers multiple discrete equipment with different tags, focus on the equipment whose tag is stamped on the cover page or in the title. The first/lead equipment is the one to extract; subsequent submittals will pick up the rest.
+
+5. Approval stamp. Look for a review stamp (often on the cover page) with checkboxes like "Approved", "Approved as Noted", "Revise & Resubmit", "Rejected". Extract whichever is checked. If multiple are checked or it's ambiguous, prefer the most restrictive (Revise > Approved as Noted > Approved). If no stamp is visible, use null.
+
+OUTPUT FORMAT — JSON ONLY, no prose outside the JSON:
 
 {
-  "equipment_tag": string | null,         // Project tag stamped on the cut sheet, e.g. "MDP-A", "PP-1A". null if not visible.
-  "vendor": string | null,                // Manufacturer, e.g. "Square D", "Eaton", "Siemens", "ABB"
-  "model_num": string | null,             // Catalog number, e.g. "NQOD442L225CU"
+  "equipment_tag": string | null,         // Project tag stamped on the cut sheet (e.g. "MDP-A", "PP-1A"). NOT the catalog/model number.
+  "vendor": string | null,                // Manufacturer (e.g. "Square D", "Eaton", "Siemens", "ABB", "Schneider Electric").
+  "model_num": string | null,             // Catalog number (e.g. "NQOD442L225CU", "HCP-1600-3R-65A-AL").
   "fields": {
-    "aic_ka": number | null,              // Available Interrupting Current rating, kA. e.g. 65 (NOT 65000)
-    "sccr_ka": number | null,             // Short-Circuit Current Rating, kA
-    "voltage": string | null,             // e.g. "208Y/120V", "480Y/277V", "240V"
-    "ampacity_a": number | null,          // Frame/main ampacity, Amps
-    "poles": number | null,               // 1, 2, 3, 4
-    "enclosure_nema": string | null       // NEMA enclosure code: "1", "3R", "4X", "12"
+    "aic_ka": number | null,              // SUBMITTED breaker AIC at primary voltage, in kA (so 65, NOT 65000).
+    "sccr_ka": number | null,             // SUBMITTED bus assembly SCCR, in kA.
+    "voltage": string | null,             // e.g. "208Y/120V", "480Y/277V", "240V".
+    "ampacity_a": number | null,          // Main / frame ampacity, in amperes.
+    "poles": number | null,               // 1, 2, 3, or 4.
+    "enclosure_nema": string | null       // NEMA enclosure code: "1", "3R", "4", "4X", "12".
   },
-  "submittal_status": string | null,      // From the approval stamp if visible: "approved" | "approved_as_noted" | "revise_resubmit" | "rejected" | null
-  "primary_page": number                  // 1-indexed page number where the field data is most clearly visible
+  "submittal_status": string | null,      // From approval stamp: "approved" | "approved_as_noted" | "revise_resubmit" | "rejected" | null.
+  "primary_page": number,                 // 1-indexed page where the strongest field data is visible.
+  "extraction_notes": string              // 1-3 sentences. Briefly explain where each numeric field came from, especially when a deviation table or multi-voltage table was used. Aids debugging and trust. Example: "AIC and SCCR extracted from page 2 deviation table's Submitted column. Specified called for 65 kA; submitted is 42 kA."
 }
 
-Rules:
-- Never invent values that are not visually present. Use null when uncertain.
-- For AIC/SCCR, return kA NOT amperes (65 not 65000).
-- equipment_tag is the PROJECT tag (e.g. "MDP-A"), not a model number.
-- If the cut sheet covers multiple discrete pieces of equipment with different tags, return the one tagged for the lead page; the rest will be picked up on subsequent runs.
+CRITICAL: never invent values that are not visually present. Use null when uncertain. Better to return null than to guess.
 
-Return JSON only, no prose.`;
+Return JSON only, no prose outside the JSON.`;
 
 type VisionPayload = {
   equipment_tag: string | null;
@@ -92,6 +111,7 @@ type VisionPayload = {
   };
   submittal_status: string | null;
   primary_page: number;
+  extraction_notes?: string | null;
 };
 
 type NormalizedSubmittal = {
@@ -138,6 +158,15 @@ export function normalizeSubmittalPayload(
     fields.poles = payload.fields.poles;
   }
   if (enclosureNormalized) fields.enclosure_nema = enclosureNormalized;
+  // extraction_notes is bookkeeping, not a rule input — store it alongside
+  // the values it explains so debugging an extraction can read directly
+  // from submittal_fields without re-running vision.
+  if (
+    typeof payload.extraction_notes === "string" &&
+    payload.extraction_notes.trim().length > 0
+  ) {
+    fields.extraction_notes = payload.extraction_notes.trim();
+  }
 
   return {
     rawTag,
