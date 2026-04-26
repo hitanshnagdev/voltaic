@@ -209,38 +209,58 @@ export async function buildCompareData(args: {
     equipmentId,
   });
 
-  // 4. For each value_equality attribute, retrieve a spec atom in
-  //    parallel. Rule_driven attributes get their spec atom from the
-  //    matching finding's evidence. not_extracted attributes don't need
-  //    retrieval at all.
+  // 4. ONE broad retrieve() for all value_equality attributes (was 5
+  //    parallel calls — instantly hit Voyage's 3-RPM free-tier rate
+  //    limit on the first page load and crashed the route). The
+  //    panelboard requirements live within the same spec section
+  //    (typically 26 24 16 §2.x), so a single broad query against the
+  //    project + a generous k pulls a candidate pool that covers
+  //    every attribute. Per-attribute extractors then pick their best
+  //    match from the shared pool.
+  //
+  //    Trade-off: a broad query gives slightly less-targeted ranking
+  //    than per-attribute queries did. Acceptable for v0 — the demo
+  //    spec is small and the candidate pool dominates the per-attr
+  //    relevance signal anyway. If precision suffers as the corpus
+  //    grows, the answer is to memoize embeds (deterministic query
+  //    strings) rather than re-fan-out the retrievals.
   const equalityAttrs = PANELBOARD_ATTRIBUTES.filter(
     (a) => a.kind === "value_equality",
   );
   const queryHint = eq0.tag ?? eq0.tagNormalized ?? "";
-  const retrievals = await Promise.all(
-    equalityAttrs.map((a) =>
-      retrieve({
-        query: `${queryHint} ${a.retrievalQuery ?? ""}`.trim(),
+  const broadQuery = [
+    queryHint,
+    ...equalityAttrs.map((a) => a.retrievalQuery ?? ""),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const candidatePool = broadQuery
+    ? await retrieve({
+        query: broadQuery,
         projectId,
         workspaceId,
-        filters: a.requirementType
-          ? { requirementType: a.requirementType }
-          : undefined,
-        k: 5,
-      }),
-    ),
-  );
+        // No requirementType filter on the pool — different attributes
+        // need different filters; pulling the union and letting
+        // extractors decide is simpler than per-leg filtering.
+        k: 24,
+      })
+    : [];
   const equalityAtomByDisplay = new Map<string, RetrievedAtom | null>();
-  equalityAttrs.forEach((a, i) => {
-    // Pick the first atom whose extractRequired returns a non-null value.
-    // Top-1 alone often misses when the model retrieved a closely-ranked
-    // but off-attribute paragraph; up to k=5 means we tolerate 1-2 noise
-    // atoms before we declare "no spec mention."
-    const found = retrievals[i].find((atom) =>
+  for (const a of equalityAttrs) {
+    // Optional per-attribute filter: if the attribute names a
+    // requirementType, narrow the pool to atoms of that type before
+    // running the extractor. Otherwise the extractor walks the whole
+    // pool and picks the first atom that yields a non-null required
+    // value.
+    const pool = a.requirementType
+      ? candidatePool.filter((atom) => atom.requirementType === a.requirementType)
+      : candidatePool;
+    const found = pool.find((atom) =>
       a.extractRequired ? a.extractRequired(atom) != null : false,
     );
     equalityAtomByDisplay.set(a.display, found ?? null);
-  });
+  }
 
   // 5. Walk the schema, build CompareRows.
   const rows: CompareRow[] = PANELBOARD_ATTRIBUTES.map((attr) =>
