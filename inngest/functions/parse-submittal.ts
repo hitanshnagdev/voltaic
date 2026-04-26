@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
 import { visionExtract } from "@/lib/llm";
+import { RASTER_RENDERER_VERSION } from "@/lib/pdf/raster";
 import {
   normalizeAicKa,
   normalizeEquipmentTag,
@@ -98,23 +99,27 @@ CRITICAL: never invent values that are not visually present. Use null when uncer
 Return JSON only, no prose outside the JSON.`;
 
 /**
- * Cache key for vision extraction, with a prompt-hash suffix so any change
- * to VISION_SYSTEM auto-invalidates prior cache entries for this purpose.
+ * Cache key for vision extraction. Includes hashes of BOTH the prompt
+ * and the renderer version so any change to either auto-invalidates
+ * prior cache entries.
  *
- * The hash_cache layer memoizes on (purpose, content_sha256). Without the
- * prompt hash in the purpose, edits to the prompt silently get masked by
- * stale cache hits on PDFs that were processed under the old prompt —
- * the new prompt never runs and we can't tell. With the hash, an old
- * cache entry is keyed `parse_submittal_field/v:<old-hash>` and a new
- * call uses `parse_submittal_field/v:<new-hash>`; they don't collide.
+ * Why both: the cache memoizes vision-output keyed on PDF bytes. A
+ * change to the prompt OR the renderer can change what the model
+ * returns from those bytes. If either is missing from the key, a
+ * stale answer can survive the change.
  *
- * Storage cost: each prompt revision leaves an old cache entry behind,
- * but they're scoped to the same content_sha256 they were originally
- * computed for, and the hash_cache table is tiny by construction.
+ * Concrete failure this prevents: PRs #20–#26 fixed pdfjs rendering
+ * (fonts, Path2D, path resolution) so text no longer renders as
+ * black boxes. But the cache key only included VISION_SYSTEM (which
+ * didn't change between those PRs), so retries against the same PDF
+ * bytes returned the cached "heavily redacted/obscured" answer from
+ * the broken-renderer era. Including the renderer version ensures
+ * any future raster behavior change (DPI, font set, page selection)
+ * triggers a fresh vision call.
  */
 const VISION_CACHE_PURPOSE: `parse_submittal_field/v:${string}` = `parse_submittal_field/v:${crypto
   .createHash("sha256")
-  .update(VISION_SYSTEM)
+  .update(`${VISION_SYSTEM}\n--renderer:${RASTER_RENDERER_VERSION}`)
   .digest("hex")
   .slice(0, 12)}`;
 

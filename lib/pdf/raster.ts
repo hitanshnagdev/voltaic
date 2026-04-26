@@ -3,6 +3,24 @@ import "server-only";
 export type RasterPage = { pageNum: number; png: Buffer };
 
 /**
+ * Bump this when raster behavior changes in a way that affects what
+ * downstream LLM steps see (font config, target width, page selection,
+ * any pdfjs option). Vision-extraction caches that include this token
+ * in their key auto-invalidate on the bump, preventing cached black-
+ * box results from a prior renderer ever being served as the answer
+ * for a later, correct renderer.
+ *
+ * History:
+ *   v1 — initial 1568px raster (PR #20)
+ *   v2 — bundled fonts + cmaps (PR #24-#26): the "black boxes" version
+ *        produced answers like "heavily redacted/obscured" because
+ *        glyphs rendered as solid rectangles. Subsequent fixes finally
+ *        produced readable text. Bumping invalidates any vision cache
+ *        captured under v1 prompts against v1 rasters.
+ */
+export const RASTER_RENDERER_VERSION = "v2";
+
+/**
  * Resolve pdfjs-dist's bundled font + cmap directories as file:// URLs.
  *
  * Why we need these at all: pdfjs's renderer needs standard fonts to
