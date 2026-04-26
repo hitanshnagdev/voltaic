@@ -228,6 +228,73 @@ export const specParagraphs = pgTable(
   ],
 );
 
+// Spec checklist items: structured per-attribute requirements extracted
+// from a `spec_paragraphs` row. The pivot from the hardcoded panelboard
+// attribute schema (lib/rag/compare/attributes.ts) toward Phase B per
+// docs/DECISIONS.md U12 — the spec parser produces the checklist; the
+// compare page renders that checklist instead of guessing what fields
+// to show. Empty for projects whose specs haven't been re-parsed; the
+// shim layer remains as a fallback until coverage is non-trivial.
+export const specChecklistItems = pgTable(
+  "spec_checklist_items",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    specParagraphId: uuid("spec_paragraph_id").references(
+      () => specParagraphs.id,
+      { onDelete: "cascade" },
+    ),
+    csiSection: text("csi_section").notNull(),
+    csiPath: text("csi_path").notNull(),
+    // Canonical attribute key shared across spec checklist and submittal
+    // extraction: "aic_ka" | "sccr_ka" | "enclosure_nema" | "ul_listing" |
+    // "voltage_system_v" | "phase" | "wires" | "ampacity_a" | "main_type" |
+    // "poles" | "series_rated" | "bus_material" | "bus_plating" | ...
+    attribute: text("attribute").notNull(),
+    // 'numeric' | 'enum' | 'qualitative' | 'manufacturer_list' | 'boolean'
+    requiredKind: text("required_kind").notNull(),
+    // '≥' | '≤' | '=' | '⊇' | 'in'
+    comparator: text("comparator").notNull(),
+    // Typed value matching `requiredKind`:
+    //   numeric           → number
+    //   enum              → string (single canonical code)
+    //   manufacturer_list → string[] (acceptable manufacturers)
+    //   qualitative       → string  (raw spec text — comparison delegates
+    //                                  to the LLM equivalence judge later)
+    //   boolean           → boolean
+    requiredValue: jsonb("required_value").notNull(),
+    // Optional unit: "kA", "A", "V", null. Numeric attributes only.
+    unit: text("unit"),
+    // Verbatim spec text the requirement was extracted from. Non-negotiable
+    // — every checklist item must trace back to source bytes.
+    rawQuote: text("raw_quote").notNull(),
+    confidence: numeric("confidence", { precision: 4, scale: 3 })
+      .notNull()
+      .default("0.8"),
+    contentSha256: text("content_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("spec_checklist_items_workspace_idx").on(t.workspaceId),
+    index("spec_checklist_items_document_idx").on(t.documentId),
+    index("spec_checklist_items_csi_section_idx").on(t.csiSection),
+    index("spec_checklist_items_attribute_idx").on(t.attribute),
+    uniqueIndex("spec_checklist_items_unique_idx").on(
+      t.documentId,
+      t.contentSha256,
+    ),
+  ],
+);
+
 // Submittal datasheet fields: one row per extracted equipment-field record.
 export const submittalFields = pgTable(
   "submittal_fields",
@@ -563,6 +630,7 @@ export type Project = typeof projects.$inferSelect;
 export type Document = typeof documents.$inferSelect;
 export type DocumentPage = typeof documentPages.$inferSelect;
 export type SpecParagraph = typeof specParagraphs.$inferSelect;
+export type SpecChecklistItem = typeof specChecklistItems.$inferSelect;
 export type SubmittalField = typeof submittalFields.$inferSelect;
 export type DrawingAnnotation = typeof drawingAnnotations.$inferSelect;
 export type DocumentChunk = typeof documentChunks.$inferSelect;
