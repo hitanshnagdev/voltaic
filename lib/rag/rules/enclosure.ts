@@ -27,6 +27,13 @@
  *   4: "3"   outdoor weather-resistant (windblown dust + ice)
  *   5: "4"   water-tight (indoor or outdoor, hose-directed)
  *   6: "4X"  water-tight + corrosion-resistant
+ *
+ * TODO(v2): replace the total order with a true partial-order satisfies()
+ * lookup per NEMA 250. Known silent-pass: spec=NEMA 12 (indoor + dust)
+ * vs submittal=NEMA 3R (outdoor + rain, no dust-tight) rates compliant
+ * here but isn't in reality. Demo PDFs don't exercise this case. Frozen
+ * per DECISIONS.md U15 — fix after /compare is in prod and we can see
+ * which corrections actually move the artifact.
  */
 
 import { FindingConfidence } from "@/lib/rag/confidence";
