@@ -8,6 +8,12 @@ import { documents, equipment, submittalFields } from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
 import { documentExtract, type DocumentPageCitation } from "@/lib/llm";
 import {
+  type CitableField,
+  type DroppedField,
+  type VerifiedField,
+  verifyField,
+} from "@/lib/rag/citation_guard";
+import {
   normalizeAicKa,
   normalizeEquipmentTag,
   normalizeNemaRating,
@@ -50,12 +56,16 @@ type SubmittalClassifiedEvent = {
  * (raster images → PDF document → ...) auto-invalidates prior results.
  * Bump when the extraction strategy changes in a way that affects model
  * output. Strategy log:
- *   v3-pdf-direct       — PDF as document block (vs prior raster pages)
- *   v4-typed+citations  — expanded typed numerics (sccr, voltage_system,
- *                         phase, wires, series_rated, listings, main_type)
- *                         and citations API enabled on the document block
+ *   v3-pdf-direct        — PDF as document block (vs prior raster pages)
+ *   v4-typed+citations   — expanded typed numerics (sccr, voltage_system,
+ *                          phase, wires, series_rated, listings, main_type)
+ *                          and citations API enabled on the document block
+ *   v5-citation-guard    — every typed field carries an explicit
+ *                          evidence_quote slot; a verifier drops fields
+ *                          whose quote has no token-overlap with any
+ *                          API-returned cited_text (DECISIONS.md U13)
  */
-const VISION_INPUT_MODE = "v4-typed+citations";
+const VISION_INPUT_MODE = "v5-citation-guard";
 
 const VISION_SYSTEM = `You are extracting structured electrical equipment data from a vendor submittal package (cut sheet, datasheet, or product data sheet).
 
@@ -89,32 +99,38 @@ DISAMBIGUATION RULES (this is the hard part — read carefully):
 
 9. Voltage system normalization. Extract the raw voltage string (e.g. "480Y/277V", "208Y/120V") AND the normalized line-to-line system voltage as an integer ("480Y/277V" → 480, "208Y/120V" → 208, "240V" → 240). For wye-connected systems use the higher number; for delta or single-voltage use the bare number.
 
-OUTPUT FORMAT — JSON ONLY, no prose outside the JSON:
+10. EVIDENCE QUOTES — every field that is not null MUST include an "evidence_quote": the verbatim text from the document that supports the value. This is non-negotiable. Use the ACTUAL words you read on the page; do not paraphrase, do not summarize. Include enough context that the quote is identifiable (numbers + their units + 1-3 surrounding words is usually right). The evidence_quote is automatically cross-checked against the document — any field whose quote does not appear in the document will be silently dropped from the output. So: if you cannot quote it, return null. Do not invent supporting text.
+
+OUTPUT FORMAT — JSON ONLY, no prose outside the JSON.
+
+Each typed field is either null OR an object {value, evidence_quote}. Example:
+  "aic_ka": null
+  "aic_ka": { "value": 65, "evidence_quote": "AIC: 65 kAIC at 480Y/277V" }
 
 {
-  "equipment_tag": string | null,         // Project tag stamped on the cut sheet (e.g. "MDP-A", "PP-1A"). NOT the catalog/model number.
-  "vendor": string | null,                // Manufacturer (e.g. "Square D", "Eaton", "Siemens", "ABB", "Schneider Electric").
-  "model_num": string | null,             // Catalog number (e.g. "NQOD442L225CU", "HCP-1600-3R-65A-AL").
+  "equipment_tag":   { "value": string, "evidence_quote": string } | null,   // Project tag stamped on the cut sheet (e.g. "MDP-A", "PP-1A"). NOT the catalog/model number.
+  "vendor":          { "value": string, "evidence_quote": string } | null,   // Manufacturer (e.g. "Square D", "Eaton", "Siemens", "ABB", "Schneider Electric").
+  "model_num":       { "value": string, "evidence_quote": string } | null,   // Catalog number (e.g. "NQOD442L225CU", "HCP-1600-3R-65A-AL").
   "fields": {
-    "aic_ka": number | null,              // SUBMITTED breaker AIC at primary voltage, in kA (so 65, NOT 65000).
-    "sccr_ka": number | null,             // SUBMITTED bus assembly SCCR (or "bus bracing"), in kA.
-    "series_rated": boolean | null,       // True when the SUBMITTED AIC depends on a series-rated combination with an upstream device. False if fully rated standalone. Null if not stated.
-    "voltage": string | null,             // Raw voltage label, e.g. "208Y/120V", "480Y/277V", "240V".
-    "voltage_system_v": number | null,    // Normalized line-to-line system voltage, integer: 208 | 240 | 277 | 480 | 600.
-    "phase": number | null,               // 1 or 3.
-    "wires": number | null,               // 2, 3, or 4.
-    "ampacity_a": number | null,          // Main / frame ampacity, in amperes.
-    "main_type": string | null,           // "MLO" | "MCB" | "MCCB" | other verbatim if non-standard. Null if not applicable.
-    "poles": number | null,               // 1, 2, 3, or 4.
-    "enclosure_nema": string | null,      // NEMA enclosure code: "1", "3R", "4", "4X", "12".
-    "listings": (string[]) | null         // Listing standards cited on the submittal, normalized form: ["UL 891"], ["UL 67", "UL 891"], ["UL 489"]. Null if no listing visible.
+    "aic_ka":          { "value": number,   "evidence_quote": string } | null,   // SUBMITTED breaker AIC at primary voltage, in kA (so 65, NOT 65000).
+    "sccr_ka":         { "value": number,   "evidence_quote": string } | null,   // SUBMITTED bus assembly SCCR (or "bus bracing"), in kA.
+    "series_rated":    { "value": boolean,  "evidence_quote": string } | null,   // True when SUBMITTED AIC depends on a series-rated combination. False if fully rated standalone. Null if not stated.
+    "voltage":         { "value": string,   "evidence_quote": string } | null,   // Raw voltage label, e.g. "208Y/120V", "480Y/277V", "240V".
+    "voltage_system_v":{ "value": number,   "evidence_quote": string } | null,   // Normalized line-to-line system voltage: 208 | 240 | 277 | 480 | 600.
+    "phase":           { "value": number,   "evidence_quote": string } | null,   // 1 or 3.
+    "wires":           { "value": number,   "evidence_quote": string } | null,   // 2, 3, or 4.
+    "ampacity_a":      { "value": number,   "evidence_quote": string } | null,   // Main / frame ampacity, in amperes.
+    "main_type":       { "value": string,   "evidence_quote": string } | null,   // "MLO" | "MCB" | "MCCB" | other verbatim if non-standard.
+    "poles":           { "value": number,   "evidence_quote": string } | null,   // 1, 2, 3, or 4.
+    "enclosure_nema":  { "value": string,   "evidence_quote": string } | null,   // NEMA enclosure code: "1", "3R", "4", "4X", "12".
+    "listings":        { "value": string[], "evidence_quote": string } | null    // Listing standards cited, e.g. ["UL 891"], ["UL 67", "UL 891"]. Quote one citation; covers the array.
   },
-  "submittal_status": string | null,      // From approval stamp: "approved" | "approved_as_noted" | "revise_resubmit" | "rejected" | null.
-  "primary_page": number,                 // 1-indexed page where the strongest field data is visible.
-  "extraction_notes": string              // 1-3 sentences. Briefly explain where each numeric field came from, especially when a deviation table or multi-voltage table was used. Aids debugging and trust. Example: "AIC and SCCR extracted from page 2 deviation table's Submitted column. Specified called for 65 kA; submitted is 42 kA."
+  "submittal_status":  { "value": string,   "evidence_quote": string } | null,   // From approval stamp: "approved" | "approved_as_noted" | "revise_resubmit" | "rejected".
+  "primary_page": number,                                                        // 1-indexed page where the strongest field data is visible. NOT citation-checked (it's an integer, not a claim).
+  "extraction_notes": string                                                     // 1-3 sentences explaining where each value came from. NOT citation-checked.
 }
 
-CRITICAL: never invent values that are not visually present. Use null when uncertain. Better to return null than to guess.
+CRITICAL: never invent values that are not visually present. Use null when uncertain. Better to return null than to guess. The evidence_quote is the proof — if you cannot quote, you cannot extract.
 
 Return JSON only, no prose outside the JSON.`;
 
@@ -143,30 +159,52 @@ const VISION_CACHE_PURPOSE: `parse_submittal_field/v:${string}` = `parse_submitt
   .digest("hex")
   .slice(0, 12)}`;
 
+/**
+ * Per-DECISIONS.md U13 the model returns each typed field as either
+ * `null` or `{value, evidence_quote}`. The `evidence_quote` is verified
+ * against citations downstream; unsupported quotes get the field
+ * dropped before persistence.
+ */
 type VisionPayload = {
-  equipment_tag: string | null;
-  vendor: string | null;
-  model_num: string | null;
+  equipment_tag: CitableField<string>;
+  vendor: CitableField<string>;
+  model_num: CitableField<string>;
   fields: {
-    aic_ka: number | null;
-    sccr_ka: number | null;
-    series_rated: boolean | null;
-    voltage: string | null;
-    voltage_system_v: number | null;
-    phase: number | null;
-    wires: number | null;
-    ampacity_a: number | null;
-    main_type: string | null;
-    poles: number | null;
-    enclosure_nema: string | null;
-    listings: string[] | null;
+    aic_ka: CitableField<number>;
+    sccr_ka: CitableField<number>;
+    series_rated: CitableField<boolean>;
+    voltage: CitableField<string>;
+    voltage_system_v: CitableField<number>;
+    phase: CitableField<number>;
+    wires: CitableField<number>;
+    ampacity_a: CitableField<number>;
+    main_type: CitableField<string>;
+    poles: CitableField<number>;
+    enclosure_nema: CitableField<string>;
+    listings: CitableField<string[]>;
   };
-  submittal_status: string | null;
+  submittal_status: CitableField<string>;
   primary_page: number;
   extraction_notes?: string | null;
 };
 
-type SubmittalFieldValue = number | string | boolean | string[] | DocumentPageCitation[];
+/**
+ * One per-field evidence record persisted alongside the value bag.
+ * Lets the compare page render "spec required X · cited at page N" by
+ * reading `_evidence[fieldName]` without re-running vision.
+ */
+type FieldEvidence = {
+  evidence_quote: string;
+  page_num: number;
+};
+
+type SubmittalFieldValue =
+  | number
+  | string
+  | boolean
+  | string[]
+  | DocumentPageCitation[]
+  | Record<string, FieldEvidence>;
 
 type NormalizedSubmittal = {
   rawTag: string | null;
@@ -176,112 +214,171 @@ type NormalizedSubmittal = {
   fields: Record<string, SubmittalFieldValue>;
   submittalStatus: string | null;
   pageNum: number;
+  /**
+   * Fields the citation guard rejected. NOT persisted — caller can log
+   * for debugging, but the dropped values never reach the DB. Treating
+   * a rejected field as "absent" is exactly the desired behavior for
+   * downstream rules (an unverifiable AIC value is the same as no AIC
+   * value — the rule produces an `uncertain` finding either way).
+   */
+  dropped: DroppedField[];
 };
 
 /**
  * Pure transform from VisionPayload → row-ready normalized values.
  * Exported for unit tests; doesn't touch the DB.
  *
- * `citations` is the page_location array from the citations API call,
- * passed through to the fields jsonb under the `_citations` key. We
- * don't try to attach citations to specific fields here — that's a
- * later best-effort lookup once the comparator/compare-page lands.
- * Storing the full array keeps every cited span recoverable.
+ * Citation guard pipeline (DECISIONS.md U13):
+ *   1. Each typed field comes in as `{value, evidence_quote}` or null.
+ *   2. `verifyField` checks the quote has token-overlap with at least
+ *      one cited_text in the citations array.
+ *   3. Verified fields flow through the existing value normalizers
+ *      (AIC kA scaling, NEMA canonicalization, voltage system code, ...).
+ *   4. Each verified field's page number — sourced from the citation
+ *      that backed it — lands in `_evidence[fieldName]` so the compare
+ *      page can render "cited on page N" without re-running vision.
+ *   5. Dropped fields are returned alongside the result for logging;
+ *      they never enter the persisted fields bag.
  */
 export function normalizeSubmittalPayload(
   payload: VisionPayload,
   citations: DocumentPageCitation[] = [],
 ): NormalizedSubmittal {
-  const rawTag = payload.equipment_tag;
+  const dropped: DroppedField[] = [];
+  const evidence: Record<string, FieldEvidence> = {};
+
+  /**
+   * Verify a CitableField, log any drop, and capture the evidence
+   * record on success. Returns the verified field or null.
+   */
+  function guard<T>(name: string, raw: unknown): VerifiedField<T> | null {
+    const { verified, dropped: d } = verifyField<T>(name, raw, citations);
+    if (d) dropped.push(d);
+    if (verified) {
+      evidence[name] = {
+        evidence_quote: verified.evidenceQuote,
+        page_num: verified.pageNum,
+      };
+    }
+    return verified;
+  }
+
+  const verifiedTag = guard<string>("equipment_tag", payload.equipment_tag);
+  const verifiedVendor = guard<string>("vendor", payload.vendor);
+  const verifiedModel = guard<string>("model_num", payload.model_num);
+  const verifiedAic = guard<number>("aic_ka", payload.fields.aic_ka);
+  const verifiedSccr = guard<number>("sccr_ka", payload.fields.sccr_ka);
+  const verifiedSeries = guard<boolean>("series_rated", payload.fields.series_rated);
+  const verifiedVoltage = guard<string>("voltage", payload.fields.voltage);
+  const verifiedVoltageSystem = guard<number>(
+    "voltage_system_v",
+    payload.fields.voltage_system_v,
+  );
+  const verifiedPhase = guard<number>("phase", payload.fields.phase);
+  const verifiedWires = guard<number>("wires", payload.fields.wires);
+  const verifiedAmpacity = guard<number>("ampacity_a", payload.fields.ampacity_a);
+  const verifiedMainType = guard<string>("main_type", payload.fields.main_type);
+  const verifiedPoles = guard<number>("poles", payload.fields.poles);
+  const verifiedEnclosure = guard<string>("enclosure_nema", payload.fields.enclosure_nema);
+  const verifiedListings = guard<string[]>("listings", payload.fields.listings);
+  const verifiedStatus = guard<string>("submittal_status", payload.submittal_status);
+
+  const rawTag = verifiedTag?.value ?? null;
   const tagNormalized = normalizeEquipmentTag(rawTag);
 
-  // Run AIC/SCCR through normalize even though the prompt asks for kA
-  // already — sometimes models return strings like "65 kAIC" or 65000.
+  // Value normalizers — verified-field values flow through the same
+  // post-extraction normalization (kA scaling, NEMA canonicalization)
+  // so downstream rules see consistent shapes.
   const aicNormalized = normalizeAicKa(
-    payload.fields.aic_ka != null ? String(payload.fields.aic_ka) : null,
+    verifiedAic != null ? String(verifiedAic.value) : null,
   );
   const sccrNormalized = normalizeAicKa(
-    payload.fields.sccr_ka != null ? String(payload.fields.sccr_ka) : null,
+    verifiedSccr != null ? String(verifiedSccr.value) : null,
   );
-  const enclosureNormalized = normalizeNemaRating(payload.fields.enclosure_nema);
+  const enclosureNormalized = normalizeNemaRating(verifiedEnclosure?.value ?? null);
   const voltageSystemNormalized = normalizeVoltageSystemV(
-    payload.fields.voltage_system_v != null
-      ? payload.fields.voltage_system_v
-      : payload.fields.voltage,
+    verifiedVoltageSystem?.value ?? verifiedVoltage?.value ?? null,
   );
-  const phaseNormalized = normalizePhase(payload.fields.phase);
-  const wiresNormalized = normalizeWires(payload.fields.wires);
+  const phaseNormalized = normalizePhase(verifiedPhase?.value ?? null);
+  const wiresNormalized = normalizeWires(verifiedWires?.value ?? null);
 
   const fields: Record<string, SubmittalFieldValue> = {};
   if (aicNormalized != null) fields.aic_ka = aicNormalized;
   if (sccrNormalized != null) fields.sccr_ka = sccrNormalized;
-  if (typeof payload.fields.series_rated === "boolean") {
-    fields.series_rated = payload.fields.series_rated;
+  if (verifiedSeries != null && typeof verifiedSeries.value === "boolean") {
+    fields.series_rated = verifiedSeries.value;
   }
-  if (payload.fields.voltage) fields.voltage = payload.fields.voltage;
+  if (verifiedVoltage?.value) fields.voltage = verifiedVoltage.value;
   if (voltageSystemNormalized != null) {
     fields.voltage_system_v = voltageSystemNormalized;
   }
   if (phaseNormalized != null) fields.phase = phaseNormalized;
   if (wiresNormalized != null) fields.wires = wiresNormalized;
   if (
-    payload.fields.ampacity_a != null &&
-    Number.isFinite(payload.fields.ampacity_a)
+    verifiedAmpacity != null &&
+    typeof verifiedAmpacity.value === "number" &&
+    Number.isFinite(verifiedAmpacity.value)
   ) {
-    fields.ampacity_a = payload.fields.ampacity_a;
+    fields.ampacity_a = verifiedAmpacity.value;
   }
   if (
-    typeof payload.fields.main_type === "string" &&
-    payload.fields.main_type.trim().length > 0
+    verifiedMainType != null &&
+    typeof verifiedMainType.value === "string" &&
+    verifiedMainType.value.trim().length > 0
   ) {
-    fields.main_type = payload.fields.main_type.trim().toUpperCase();
+    fields.main_type = verifiedMainType.value.trim().toUpperCase();
   }
-  if (payload.fields.poles != null && Number.isFinite(payload.fields.poles)) {
-    fields.poles = payload.fields.poles;
+  if (
+    verifiedPoles != null &&
+    typeof verifiedPoles.value === "number" &&
+    Number.isFinite(verifiedPoles.value)
+  ) {
+    fields.poles = verifiedPoles.value;
   }
   if (enclosureNormalized) fields.enclosure_nema = enclosureNormalized;
-  // Filter listings down to non-empty trimmed strings; drop the field
-  // entirely when the array would be empty so we don't store noise.
-  if (Array.isArray(payload.fields.listings)) {
-    const cleaned = payload.fields.listings
+  // Listings: filter to non-empty trimmed strings; drop entirely when empty.
+  if (verifiedListings != null && Array.isArray(verifiedListings.value)) {
+    const cleaned = verifiedListings.value
       .filter((s): s is string => typeof s === "string")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (cleaned.length > 0) fields.listings = cleaned;
   }
-  // extraction_notes is bookkeeping, not a rule input — store it alongside
-  // the values it explains so debugging an extraction can read directly
-  // from submittal_fields without re-running vision.
+  // extraction_notes is NOT citation-guarded — it's the model's own
+  // reasoning, not a quoted value. Pass through verbatim when present.
   if (
     typeof payload.extraction_notes === "string" &&
     payload.extraction_notes.trim().length > 0
   ) {
     fields.extraction_notes = payload.extraction_notes.trim();
   }
-  // Citations API output: store the full page-location array so any
-  // downstream consumer (compare page, finding evidence, audit) can
-  // recover the verifiable text spans Sonnet quoted. Per-field
-  // attachment is a later best-effort lookup, not blocking.
-  //
-  // PASSIVE EVIDENCE ONLY (DECISIONS.md U13). These citations are not
-  // yet a hallucination guard — a field can be persisted even when
-  // nothing in the citations array supports it. The guard requires
-  // restructuring the prompt to give each field an explicit
-  // `evidence_quote` slot so citations attach to verifiable spans, then
-  // a verifier drops fields whose quote has no `cited_text` overlap.
-  // That's the next sub-step before the compare page wires up.
+  // Per-field evidence map: each verified field's evidence_quote +
+  // citation-derived page number. Compare page reads this to render
+  // "cited on page N" per row without re-running vision.
+  if (Object.keys(evidence).length > 0) {
+    fields._evidence = evidence;
+  }
+  // Full citation array stays available for audit + future drilldown.
   if (citations.length > 0) {
     fields._citations = citations;
   }
 
+  // Page number for the row: prefer the AIC field's citation page since
+  // AIC is the most-cited compliance field; fall back to model-reported
+  // primary_page; floor at 1.
+  const fallbackPage = payload.primary_page > 0 ? payload.primary_page : 1;
+  const aicPage = evidence.aic_ka?.page_num;
+  const pageNum = aicPage != null && aicPage > 0 ? aicPage : fallbackPage;
+
   return {
     rawTag,
     tagNormalized,
-    vendor: payload.vendor,
-    modelNum: payload.model_num,
+    vendor: verifiedVendor?.value ?? null,
+    modelNum: verifiedModel?.value ?? null,
     fields,
-    submittalStatus: payload.submittal_status,
-    pageNum: payload.primary_page > 0 ? payload.primary_page : 1,
+    submittalStatus: verifiedStatus?.value ?? null,
+    pageNum,
+    dropped,
   };
 }
 
@@ -490,6 +587,11 @@ export const parseSubmittalDocument = inngest.createFunction(
       tagNormalized,
       fieldsExtracted: Object.keys(normalized.fields).length,
       hasAic: normalized.fields.aic_ka != null,
+      // Surface citation-guard drops in the run summary so debugging a
+      // missing field in /today or compare doesn't require re-running
+      // vision — the Inngest run logs show what got rejected and why.
+      droppedFieldNames: normalized.dropped.map((d) => d.fieldName),
+      droppedCount: normalized.dropped.length,
     };
   },
 );
