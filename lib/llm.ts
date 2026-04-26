@@ -132,6 +132,88 @@ export type VisionImage = {
   data: string;
 };
 
+/**
+ * Document extraction — pass a PDF directly to Claude's vision model
+ * via the document content block. Sonnet renders the PDF internally,
+ * which avoids every server-side rendering pitfall on Node serverless
+ * (missing fonts, fontconfig gaps, file:// URL bugs in pdfjs).
+ *
+ * Useful for submittal cut sheets where the structural data lives in
+ * tables and rendered layout — Sonnet sees the PDF the same way a
+ * human reviewer would, no intermediate raster step we have to keep
+ * in sync with whatever the model expects.
+ */
+export type DocumentInput = {
+  /** Currently only "application/pdf" is supported by the API. */
+  mediaType: "application/pdf";
+  /** Base64-encoded PDF bytes. No data: prefix. */
+  data: string;
+};
+
+export async function documentExtract<T>(args: {
+  system: string;
+  prompt: string;
+  pdf: DocumentInput;
+  ctx: LogCtx;
+  purpose: Purpose;
+  model?: string;
+  maxTokens?: number;
+}): Promise<T> {
+  const model = args.model ?? "claude-sonnet-4-6";
+  const start = Date.now();
+  try {
+    const res = await anthropic().messages.create({
+      model,
+      max_tokens: args.maxTokens ?? 2048,
+      system: args.system,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: args.pdf.mediaType,
+                data: args.pdf.data,
+              },
+            },
+            { type: "text", text: args.prompt },
+          ],
+        },
+      ],
+    });
+    const latencyMs = Date.now() - start;
+    const textBlock = res.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      throw new Error("no text in response");
+    }
+    const parsed = extractJson<T>(textBlock.text);
+    await logCall({
+      ctx: args.ctx,
+      provider: "anthropic",
+      model,
+      purpose: args.purpose,
+      tokensIn: res.usage.input_tokens,
+      tokensOut: res.usage.output_tokens,
+      latencyMs,
+    });
+    return parsed;
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    const msg = err instanceof Error ? err.message : String(err);
+    await logCall({
+      ctx: args.ctx,
+      provider: "anthropic",
+      model,
+      purpose: args.purpose,
+      latencyMs,
+      error: msg,
+    });
+    throw err;
+  }
+}
+
 export async function visionExtract<T>(args: {
   system: string;
   prompt: string;

@@ -1,18 +1,12 @@
 import "server-only";
 import crypto from "node:crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { memoize } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
-import {
-  documentPages,
-  documents,
-  equipment,
-  submittalFields,
-} from "@/lib/db/schema";
+import { documents, equipment, submittalFields } from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
-import { visionExtract } from "@/lib/llm";
-import { RASTER_RENDERER_VERSION } from "@/lib/pdf/raster";
+import { documentExtract } from "@/lib/llm";
 import {
   normalizeAicKa,
   normalizeEquipmentTag,
@@ -48,8 +42,14 @@ type SubmittalClassifiedEvent = {
   projectId: string;
 };
 
-/** How many leading raster pages to send to vision. */
-const MAX_PAGES_TO_VISION = 4;
+/**
+ * Tag rolled into the vision cache key so changing the input mode
+ * (raster images → PDF document → ...) auto-invalidates prior results.
+ * Bump when the extraction strategy changes in a way that affects model
+ * output. v3-pdf-direct = sending the original PDF as a document block
+ * to Sonnet rather than rasterizing first.
+ */
+const VISION_INPUT_MODE = "v3-pdf-direct";
 
 const VISION_SYSTEM = `You are extracting structured electrical equipment data from a vendor submittal package (cut sheet, datasheet, or product data sheet).
 
@@ -119,7 +119,7 @@ Return JSON only, no prose outside the JSON.`;
  */
 const VISION_CACHE_PURPOSE: `parse_submittal_field/v:${string}` = `parse_submittal_field/v:${crypto
   .createHash("sha256")
-  .update(`${VISION_SYSTEM}\n--renderer:${RASTER_RENDERER_VERSION}`)
+  .update(`${VISION_SYSTEM}\n--mode:${VISION_INPUT_MODE}`)
   .digest("hex")
   .slice(0, 12)}`;
 
@@ -237,6 +237,7 @@ export const parseSubmittalDocument = inngest.createFunction(
           contentSha256: documents.contentSha256,
           docType: documents.docType,
           submittalStatus: documents.submittalStatus,
+          r2Key: documents.r2Key,
         })
         .from(documents)
         .where(eq(documents.id, documentId))
@@ -249,38 +250,27 @@ export const parseSubmittalDocument = inngest.createFunction(
 
     if (!doc) return { documentId, skipped: "not_a_submittal" };
 
-    const rasterKeys = await step.run("load-raster-keys", async () => {
-      const rows = await db
-        .select({
-          pageNum: documentPages.pageNum,
-          rasterR2Key: documentPages.rasterR2Key,
-        })
-        .from(documentPages)
-        .where(eq(documentPages.documentId, documentId))
-        .orderBy(asc(documentPages.pageNum))
-        .limit(MAX_PAGES_TO_VISION);
-      return rows.filter((r) => r.rasterR2Key);
+    // Pull the original PDF bytes — sent directly to Claude as a document
+    // input (see lib/llm.ts documentExtract). Bypasses node-canvas/pdfjs
+    // entirely. We tried several layers of server-side rasterization with
+    // bundled fonts and a custom BinaryDataFactory; node-canvas + cairo
+    // can't render PDF text without fontconfig + system fonts, and Vercel
+    // serverless has neither. Sonnet's PDF input handles this in one
+    // round-trip with guaranteed-correct rendering.
+    const pdfBuffer = await step.run("load-pdf-bytes", async () => {
+      const buf = await getObjectBuffer(doc.r2Key);
+      return buf.toString("base64");
     });
-
-    if (rasterKeys.length === 0) {
-      return { documentId, skipped: "no_rasters" };
-    }
 
     const payload = await step.run("vision-extract", async () => {
       return memoize<VisionPayload>(
         VISION_CACHE_PURPOSE,
         doc.contentSha256,
         async () => {
-          const images = await Promise.all(
-            rasterKeys.map(async (r) => ({
-              mediaType: "image/png" as const,
-              data: (await getObjectBuffer(r.rasterR2Key!)).toString("base64"),
-            })),
-          );
-          const result = await visionExtract<VisionPayload>({
+          const result = await documentExtract<VisionPayload>({
             system: VISION_SYSTEM,
             prompt: `Filename: ${doc.filename}\n\nExtract the structured fields and return JSON.`,
-            images,
+            pdf: { mediaType: "application/pdf", data: pdfBuffer },
             ctx: { workspaceId, projectId },
             purpose: "parse_submittal",
           });
