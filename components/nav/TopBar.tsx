@@ -1,6 +1,18 @@
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 
-export function TopBar() {
+/**
+ * Top bar. Renders the project name as a breadcrumb after the org
+ * switcher when one is available; collapses to just the brand mark when
+ * the user is signed in but has no project (NoOrgGate path).
+ *
+ * Notification bell removed in PR A (chrome cleanup) — there is no
+ * notifications system; the "3" badge was decoration. Re-add when the
+ * notifications surface ships.
+ */
+export function TopBar(props: {
+  projectName: string | null;
+  projectStatus: string | null;
+}) {
   return (
     <header className="sticky top-0 z-40 flex items-center gap-6 border-b border-[var(--color-line)] bg-[var(--color-cream)] px-6 py-3">
       <div className="flex items-center gap-2.5">
@@ -42,50 +54,42 @@ export function TopBar() {
             },
           }}
         />
-        <span className="text-[var(--color-line-strong)]">/</span>
-        <span className="font-medium tracking-tight text-[var(--color-ink)]">
-          Riverside Medical Center — Electrical
-        </span>
-        <span
-          className="ml-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
-          style={{
-            background: "var(--color-sage-tint)",
-            color: "#3a5844",
-            borderColor: "#bed6c4",
-          }}
-        >
-          ACTIVE
-        </span>
+        {props.projectName ? (
+          <>
+            <span className="text-[var(--color-line-strong)]">/</span>
+            <span className="font-medium tracking-tight text-[var(--color-ink)]">
+              {props.projectName}
+            </span>
+            {props.projectStatus === "active" ? (
+              <span
+                className="ml-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: "var(--color-sage-tint)",
+                  color: "#3a5844",
+                  borderColor: "#bed6c4",
+                }}
+              >
+                Active
+              </span>
+            ) : props.projectStatus ? (
+              <span
+                className="ml-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: "var(--color-paper)",
+                  color: "var(--color-muted)",
+                  borderColor: "var(--color-line)",
+                }}
+              >
+                {props.projectStatus}
+              </span>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
-        <button
-          title="Notifications"
-          className="relative rounded p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-cream-deep)] hover:text-[var(--color-ink)]"
-        >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-            />
-          </svg>
-          <span
-            className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-            style={{ background: "var(--color-clay)" }}
-          >
-            3
-          </span>
-        </button>
-        <div className="h-6 w-px bg-[var(--color-line)]" />
         <UserButton
           appearance={{
             variables: { colorPrimary: "#cc785c" },

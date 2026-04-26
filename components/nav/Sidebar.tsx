@@ -7,14 +7,12 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  badge?: { text: string; tone: "alert" | "ai" };
 };
 
 const NAV: NavItem[] = [
   {
     href: "/today",
     label: "Today",
-    badge: { text: "5", tone: "alert" },
     icon: (
       <svg
         className="h-4 w-4"
@@ -53,7 +51,6 @@ const NAV: NavItem[] = [
   {
     href: "/map",
     label: "System Map",
-    badge: { text: "7", tone: "alert" },
     icon: (
       <svg
         className="h-4 w-4"
@@ -73,7 +70,6 @@ const NAV: NavItem[] = [
   {
     href: "/compare",
     label: "Compare",
-    badge: { text: "AI", tone: "ai" },
     icon: (
       <svg
         className="h-4 w-4"
@@ -92,7 +88,18 @@ const NAV: NavItem[] = [
   },
 ];
 
-export function Sidebar() {
+/**
+ * Sidebar. Renders the active project name + a single real signal —
+ * the count of open findings on the Today nav item. Decorative badges
+ * (the "5" / "7" / "AI" mocks, the "$6.5M · Hospital reno · Austin TX"
+ * line, the bottom "Last AI analysis · 2 minutes ago" panel) are gone:
+ * each was a plausible-looking value with no backing data, exactly the
+ * kind of fake the post-mortem on session 2026-04-26 named.
+ */
+export function Sidebar(props: {
+  projectName: string;
+  openFindingCount: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -102,10 +109,7 @@ export function Sidebar() {
           Project
         </div>
         <div className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-          Riverside Medical
-        </div>
-        <div className="mt-1 text-xs text-[var(--color-muted)]">
-          $6.5M · Hospital reno · Austin, TX
+          {props.projectName}
         </div>
         <div className="mt-3 flex items-center gap-2">
           <span
@@ -126,6 +130,10 @@ export function Sidebar() {
       <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {NAV.map((item) => {
           const active = pathname?.startsWith(item.href);
+          // Only the Today item gets a real badge — open findings count.
+          // Other items get no badge (no real data to back one yet).
+          const showBadge =
+            item.href === "/today" && props.openFindingCount > 0;
           return (
             <Link
               key={item.href}
@@ -138,54 +146,21 @@ export function Sidebar() {
                 {item.icon}
               </span>
               {item.label}
-              {item.badge && (
+              {showBadge && (
                 <span
                   className="ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  style={
-                    item.badge.tone === "ai"
-                      ? {
-                          background: "var(--color-coral-tint)",
-                          color: "var(--color-coral-dark)",
-                          fontWeight: 600,
-                        }
-                      : {
-                          background: "var(--color-clay-tint)",
-                          color: "var(--color-clay)",
-                        }
-                  }
+                  style={{
+                    background: "var(--color-clay-tint)",
+                    color: "var(--color-clay)",
+                  }}
                 >
-                  {item.badge.text}
+                  {props.openFindingCount}
                 </span>
               )}
             </Link>
           );
         })}
       </nav>
-
-      <div className="border-t border-[var(--color-line)] px-5 py-4">
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-          Last AI analysis
-        </div>
-        <div className="text-xs text-[var(--color-ink-soft)]">
-          2 minutes ago
-        </div>
-        <div
-          className="mt-1 flex items-center gap-1.5 text-[11px]"
-          style={{ color: "#3a5844" }}
-        >
-          <span
-            className="pulse-dot h-1.5 w-1.5 rounded-full"
-            style={{ background: "var(--color-sage)" }}
-          />
-          Watching for new uploads
-        </div>
-        <Link
-          href="/compare"
-          className="mt-3 block w-full rounded border border-[var(--color-line)] py-1.5 text-center text-[11px] font-medium text-[var(--color-ink-soft)] transition hover:bg-[var(--color-paper)]"
-        >
-          Run a new check →
-        </Link>
-      </div>
     </aside>
   );
 }
