@@ -5,36 +5,42 @@ export type RasterPage = { pageNum: number; png: Buffer };
 /**
  * Resolve pdfjs-dist's bundled font + cmap directories as file:// URLs.
  *
- * Why lazy / at-call-time: createRequire + require.resolve at module
- * scope runs during Next.js's "collect page data" build phase, which
- * goes through Turbopack's bundler — and the bundler intercepts
- * require.resolve, returning a numeric module ID instead of a real
- * filesystem path. Pushing the resolution inside the function defers
- * it to runtime, where it returns the actual node_modules path on the
- * Vercel function filesystem.
- *
  * Why we need these at all: pdfjs's renderer needs standard fonts to
  * substitute for any glyphs the PDF doesn't embed. Without them on
  * Node serverless (no fontconfig, no system fonts), every glyph
  * renders as a solid black rectangle. Sonnet vision sees boxes,
- * returns null, the rule never fires.
+ * returns null, the rule never fires. CONFIRMED in production via
+ * extraction_notes from the demo submittal: "heavily redacted/
+ * obscured with black blocks covering all text content."
+ *
+ * Why we DON'T use createRequire(import.meta.url).resolve(): Turbopack
+ * intercepts require.resolve calls in code that goes through its
+ * transform pipeline — which raster.ts does, even with
+ * `serverExternalPackages` set in next.config.ts and even when the
+ * call is deferred to runtime. The "resolved" path it returns is a
+ * numeric module ID (e.g. 55876), not a filesystem path. dirname()
+ * then throws "path argument must be of type string". Verified twice
+ * — once at build, once at runtime on Vercel — both with different
+ * module IDs.
+ *
+ * Why process.cwd() works: it's a Node runtime call that the bundler
+ * doesn't shim. On Vercel serverless, cwd is the function root
+ * (typically /var/task), and serverExternalPackages ensures
+ * node_modules/pdfjs-dist is installed there as a real npm package
+ * with its standard_fonts/ and cmaps/ directories intact.
  */
 async function resolveBundledAssetUrls(): Promise<{
   standardFontDataUrl: string;
   cMapUrl: string;
 }> {
-  const { createRequire } = await import("node:module");
-  const { dirname, join } = await import("node:path");
+  const { join } = await import("node:path");
   const { pathToFileURL } = await import("node:url");
-  const requireFromHere = createRequire(import.meta.url);
-  const pdfjsRoot = dirname(
-    requireFromHere.resolve("pdfjs-dist/package.json"),
-  );
+  const root = join(process.cwd(), "node_modules", "pdfjs-dist");
   return {
     standardFontDataUrl: pathToFileURL(
-      join(pdfjsRoot, "standard_fonts/"),
+      join(root, "standard_fonts/"),
     ).toString(),
-    cMapUrl: pathToFileURL(join(pdfjsRoot, "cmaps/")).toString(),
+    cMapUrl: pathToFileURL(join(root, "cmaps/")).toString(),
   };
 }
 
