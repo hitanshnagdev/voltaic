@@ -41,9 +41,13 @@ type SpecParagraphsWrittenEvent = {
 /**
  * Per-paragraph cache key prefix. Bump the version suffix when the
  * prompt or output schema changes — auto-invalidates prior cache
- * entries the same way the submittal vision cache does.
+ * entries the same way the submittal vision cache does. Strategy log:
+ *   v:checklist-1 — initial release; max_tokens=1500, no raw_quote bound
+ *   v:checklist-2 — raw_quote constrained to 5-25 words; max_tokens=8192
+ *                   (post-truncation fix verified end-to-end against
+ *                    demo spec, 100+ items extracted cleanly)
  */
-const CHECKLIST_CACHE_PURPOSE = "parse_spec_paragraph/v:checklist-1" as const;
+const CHECKLIST_CACHE_PURPOSE = "parse_spec_paragraph/v:checklist-2" as const;
 
 type ChecklistRow = {
   workspaceId: string;
