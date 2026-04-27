@@ -344,6 +344,68 @@ export const submittalSpecAssignments = pgTable(
   ],
 );
 
+// Submittal responses to spec checklist items. The pivot from generic
+// field-fishing toward guided extraction per docs/DECISIONS.md U12 Phase B:
+// once a submittal is assigned to a spec, the vision call gets the spec's
+// checklist as context and returns one response per item — what the
+// submittal claims for that specific requirement, with verbatim quote
+// + page. Replaces the regex-against-retrieved-text shim.
+//
+// (submittal_document_id, spec_checklist_item_id) is unique so the
+// runner's INSERT-on-conflict-DO-NOTHING + DELETE-by-NOT-IN idempotency
+// shape works the same way as spec_paragraphs / spec_checklist_items.
+export const submittalChecklistResponses = pgTable(
+  "submittal_checklist_responses",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    submittalDocumentId: uuid("submittal_document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    specChecklistItemId: uuid("spec_checklist_item_id")
+      .notNull()
+      .references(() => specChecklistItems.id, { onDelete: "cascade" }),
+    // True when the submittal addresses this requirement; false when
+    // the submittal is silent on it. False rows render as MISSING in
+    // the compare table — first-class failure visibility, not a
+    // suppressed nothing.
+    found: boolean("found").notNull().default(true),
+    // The value the submittal claims for this requirement. Type
+    // matches the linked checklist item's required_kind:
+    //   numeric           → number
+    //   enum              → string
+    //   boolean           → boolean
+    //   manufacturer_list → string (the actual manufacturer named)
+    //   qualitative       → string (raw text from the submittal)
+    // Null when found=false.
+    value: jsonb("value"),
+    evidenceQuote: text("evidence_quote"),
+    pageNum: integer("page_num"),
+    confidence: numeric("confidence", { precision: 4, scale: 3 })
+      .notNull()
+      .default("0.8"),
+    contentSha256: text("content_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("submittal_checklist_responses_workspace_idx").on(t.workspaceId),
+    index("submittal_checklist_responses_submittal_idx").on(
+      t.submittalDocumentId,
+    ),
+    index("submittal_checklist_responses_item_idx").on(t.specChecklistItemId),
+    uniqueIndex("submittal_checklist_responses_unique_idx").on(
+      t.submittalDocumentId,
+      t.specChecklistItemId,
+    ),
+  ],
+);
+
 // Submittal datasheet fields: one row per extracted equipment-field record.
 export const submittalFields = pgTable(
   "submittal_fields",
@@ -681,6 +743,8 @@ export type DocumentPage = typeof documentPages.$inferSelect;
 export type SpecParagraph = typeof specParagraphs.$inferSelect;
 export type SpecChecklistItem = typeof specChecklistItems.$inferSelect;
 export type SubmittalSpecAssignment = typeof submittalSpecAssignments.$inferSelect;
+export type SubmittalChecklistResponse =
+  typeof submittalChecklistResponses.$inferSelect;
 export type SubmittalField = typeof submittalFields.$inferSelect;
 export type DrawingAnnotation = typeof drawingAnnotations.$inferSelect;
 export type DocumentChunk = typeof documentChunks.$inferSelect;
