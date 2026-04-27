@@ -1,5 +1,43 @@
 import { describe, expect, it } from "vitest";
+import { extractJson } from "@/lib/llm";
 import { validateItems } from "./checklist";
+
+describe("extractJson resilience", () => {
+  it("parses fully-closed ```json fence", () => {
+    expect(
+      extractJson<unknown[]>('```json\n[{"attribute":"aic_ka"}]\n```'),
+    ).toEqual([{ attribute: "aic_ka" }]);
+  });
+
+  it("parses unclosed ```json fence (max_tokens-truncation case)", () => {
+    // Real failure mode caught running parse-spec-checklist on the demo
+    // spec: max_tokens=1500 cut off the response mid-array, leaving an
+    // open fence. Defensive strip handles it.
+    expect(
+      extractJson<unknown[]>('```json\n[{"attribute":"aic_ka"}]'),
+    ).toEqual([{ attribute: "aic_ka" }]);
+  });
+
+  it("parses bare JSON without any fence", () => {
+    expect(extractJson<unknown[]>('[{"attribute":"sccr_ka"}]')).toEqual([
+      { attribute: "sccr_ka" },
+    ]);
+  });
+
+  it("parses ``` (no language tag) fence", () => {
+    expect(
+      extractJson<unknown[]>('```\n[{"attribute":"poles"}]\n```'),
+    ).toEqual([{ attribute: "poles" }]);
+  });
+
+  it("strips trailing fence-only-close (mirror of unclosed-open case)", () => {
+    expect(extractJson<unknown[]>('[{"a":1}]\n```')).toEqual([{ a: 1 }]);
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(extractJson<unknown[]>('   \n[{"a":1}]\n   ')).toEqual([{ a: 1 }]);
+  });
+});
 
 describe("validateItems — boundary validator", () => {
   it("returns [] when input is not an array", () => {

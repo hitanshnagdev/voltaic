@@ -197,6 +197,7 @@ When a requirement names something not in this list, use a snake_case key prefix
 
 CRITICAL:
 - raw_quote MUST be verbatim text from the paragraph (the basis for evidence binding downstream).
+- raw_quote should be the SHORTEST verbatim span that supports the requirement — usually 5–25 words. If the supporting span is longer, just quote the most relevant clause. NEVER quote the entire paragraph.
 - Never invent numeric values — if the paragraph doesn't state a number, don't use the "numeric" shape.
 - If the paragraph contains zero install-readiness requirements (e.g. it's a definitions section, a reference list, or pure boilerplate), return [].
 - Return the JSON array only, no prose outside it.`;
@@ -233,7 +234,14 @@ export async function parseChecklistFromParagraph(args: {
     user: USER_TEMPLATE(args.input),
     ctx: args.ctx,
     purpose: "parse_spec",
-    maxTokens: 1500,
+    // 8192 because some panelboard paragraphs encode 6+ distinct
+    // requirements. Even with the prompt constraint that raw_quote
+    // should be 5-25 words, dense paragraphs (working clearance + bus
+    // bracing + AIC + listing + manufacturer list in one) overflow
+    // 4096. The extractJson defensive-fence-strip catches partial
+    // truncation but the right answer is to give the model enough
+    // budget to close cleanly.
+    maxTokens: 8192,
     model: "claude-sonnet-4-6",
   });
   return validateItems(raw);

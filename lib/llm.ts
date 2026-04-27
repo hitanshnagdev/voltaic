@@ -62,11 +62,25 @@ async function logCall(args: {
   });
 }
 
-function extractJson<T>(text: string): T {
-  const trimmed = text.trim();
-  // Sometimes models wrap JSON in fences. Strip them.
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  const raw = fenced ? fenced[1] : trimmed;
+/**
+ * Strip optional code fences and parse JSON. Exported for unit tests
+ * — the function is small but its truncation-handling matters: Sonnet
+ * occasionally hits max_tokens mid-response and returns an unclosed
+ * fence that crashes a strict regex parser. Real failure caught
+ * running parse-spec-checklist on the demo spec at max_tokens=1500.
+ */
+export function extractJson<T>(text: string): T {
+  let raw = text.trim();
+  // Strip a fully-closed ```json ... ``` fence first — the cleanest case.
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenced) {
+    raw = fenced[1];
+  } else {
+    // Defensive: model output sometimes opens a fence but the closing
+    // backticks get truncated (max_tokens cutoff). Strip a leading
+    // ```json prefix and a trailing ``` if present, independently.
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  }
   return JSON.parse(raw) as T;
 }
 
