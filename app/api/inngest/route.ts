@@ -8,6 +8,7 @@ import { ingestDocument } from "@/inngest/functions/ingest-document";
 import { parseSpecChecklist } from "@/inngest/functions/parse-spec-checklist";
 import { parseSpecDocument } from "@/inngest/functions/parse-spec";
 import { parseSubmittalDocument } from "@/inngest/functions/parse-submittal";
+import { suggestSpecAssignmentForSubmittal } from "@/inngest/functions/suggest-assignment";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,5 +24,6 @@ export const { GET, POST, PUT } = serve({
     analyzeProject,
     analyzeSccr,
     analyzeEnclosure,
+    suggestSpecAssignmentForSubmittal,
   ],
 });
