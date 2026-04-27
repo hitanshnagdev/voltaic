@@ -1,22 +1,22 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import type { CompareEquipmentSummary } from "@/lib/db/compare";
+import type { SubmittalSummary } from "@/lib/db/compare";
 
 /**
- * Server-rendered list, client-controlled selection. The page reads
- * `?eq=<equipmentId>` from the URL — we just push a new search param
- * on change so the page is shareable and re-rendered server-side.
+ * Submittal selector. URL-driven (`?submittal=<id>`), server-rendered
+ * list, client-controlled selection. Submittals appear sorted by
+ * flagged-count desc so the most-broken thing surfaces first.
  *
- * Visually a plain `<select>` for v1: project-scoped equipment counts
- * are usually small (1-30 panelboards), and a styled combobox would
- * burn UI complexity that's better spent on the table itself.
+ * Renamed from the equipment-based selector after the spec-driven
+ * pivot — file kept under the old name to minimize churn; class /
+ * export name updated to match.
  */
-export function CompareEquipmentSelector({
-  equipment,
+export function CompareSubmittalSelector({
+  submittals,
   selectedId,
 }: {
-  equipment: CompareEquipmentSummary[];
+  submittals: SubmittalSummary[];
   selectedId: string;
 }) {
   const router = useRouter();
@@ -26,15 +26,19 @@ export function CompareEquipmentSelector({
       value={selectedId}
       onChange={(e) => {
         const params = new URLSearchParams(searchParams.toString());
-        params.set("eq", e.target.value);
+        params.set("submittal", e.target.value);
+        // Clear ?spec when switching submittals — the new submittal
+        // may have entirely different assignments.
+        params.delete("spec");
         router.push(`/compare?${params.toString()}`);
       }}
       className="rounded border border-[var(--color-line)] bg-white px-3 py-1.5 text-[13px] font-medium text-[var(--color-ink)] focus:border-[var(--color-coral-dark)] focus:outline-none"
     >
-      {equipment.map((e) => (
-        <option key={e.id} value={e.id}>
-          {e.tag ?? "(no tag)"} · {e.category}
-          {e.flaggedCount > 0 ? ` · ${e.flaggedCount} flagged` : ""}
+      {submittals.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.filename}
+          {s.flaggedCount > 0 ? ` · ${s.flaggedCount} flagged` : ""}
+          {s.assignmentCount === 0 ? " · unassigned" : ""}
         </option>
       ))}
     </select>

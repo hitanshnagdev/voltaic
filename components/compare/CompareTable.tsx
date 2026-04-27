@@ -1,15 +1,13 @@
 import type { CompareData, CompareGroup, CompareRow } from "@/lib/db/compare";
 
 /**
- * Renders the per-equipment compliance table. Image 2 of the design
- * exploration: grouped attribute rows with pass/fail dots, summary
- * counts per group, and a finding-card row inline under any non-trivial
- * row (non_compliant / uncertain / missing).
+ * Renders the per-submittal compliance table. Phase B PR 3 — reads
+ * from the spec-driven path: each row is one spec checklist item +
+ * the matching submittal response, with verdict computed by the
+ * comparator. Replaces the prior hardcoded panelboard schema rendering.
  *
- * Server component — no interactivity beyond hover. Expand-row /
- * inline drill-down lands in a future PR (Phase C); for v1 the
- * non-trivial rows show a one-line `reason` and link to /today for
- * the full finding card when one exists.
+ * Server component — no interactivity beyond hover. Inline expand /
+ * PDF drilldown is Phase C.
  */
 export function CompareTable({ data }: { data: CompareData }) {
   return (
@@ -54,7 +52,7 @@ function GroupSection({ group }: { group: CompareGroup }) {
         </thead>
         <tbody className="divide-y divide-[var(--color-line-soft)]">
           {group.rows.map((row) => (
-            <Row key={row.attribute} row={row} />
+            <Row key={row.id} row={row} />
           ))}
         </tbody>
       </table>
@@ -63,14 +61,13 @@ function GroupSection({ group }: { group: CompareGroup }) {
 }
 
 function Row({ row }: { row: CompareRow }) {
-  const dot = verdictDot(row.verdict);
   return (
     <>
       <tr>
-        <td className="py-3 pl-4 align-top">{dot}</td>
+        <td className="py-3 pl-4 align-top">{verdictDot(row.verdict)}</td>
         <td className="py-3 align-top">
           <div className="font-medium text-[var(--color-ink)]">
-            {row.attribute}
+            {humanizeAttribute(row.attribute)}
           </div>
           {row.specRef && (
             <div className="mt-0.5 font-mono text-[10.5px] text-[var(--color-muted-soft)]">
@@ -79,10 +76,15 @@ function Row({ row }: { row: CompareRow }) {
           )}
         </td>
         <td className="py-3 align-top text-[var(--color-ink-soft)]">
-          {row.required ?? <Faint>—</Faint>}
+          {row.requiredDisplay || <Faint>—</Faint>}
         </td>
         <td className="py-3 align-top text-[var(--color-ink-soft)]">
-          {row.submitted ?? <Faint>—</Faint>}
+          {row.submittedDisplay ?? <Faint>—</Faint>}
+          {row.submittalRef && (
+            <div className="mt-0.5 font-mono text-[10.5px] text-[var(--color-muted-soft)]">
+              {row.submittalRef}
+            </div>
+          )}
         </td>
         <td className="py-3 pr-4 align-top">
           <VerdictChip row={row} />
@@ -97,6 +99,11 @@ function Row({ row }: { row: CompareRow }) {
                 {reasonLabel(row.verdict)}{" "}
               </span>
               <span>{row.reason}</span>
+              {row.submittalQuote && (
+                <div className="mt-1 italic text-[var(--color-muted)]">
+                  &quot;{row.submittalQuote}&quot;
+                </div>
+              )}
             </div>
           </td>
         </tr>
@@ -106,23 +113,31 @@ function Row({ row }: { row: CompareRow }) {
 }
 
 function Faint({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-[var(--color-muted-soft)]">{children}</span>
-  );
+  return <span className="text-[var(--color-muted-soft)]">{children}</span>;
 }
 
 function reasonLabel(v: CompareRow["verdict"]): string {
   if (v === "non_compliant") return "Finding";
   if (v === "missing_value") return "Missing";
-  if (v === "missing_requirement") return "Note";
   if (v === "uncertain") return "Verify";
-  if (v === "not_extracted") return "Coverage gap";
+  if (v === "not_assigned") return "Setup";
   return "";
 }
 
+function humanizeAttribute(a: string): string {
+  // "aic_ka" → "AIC kA", "enclosure_nema" → "Enclosure NEMA",
+  // "other_thermographic_max_temp_rise" → "Thermographic Max Temp Rise"
+  let s = a.startsWith("other_") ? a.slice(6) : a;
+  s = s.replace(/_/g, " ");
+  // Uppercase common acronyms
+  s = s.replace(/\b(aic|sccr|nema|ul|ieee|ansi|nec|nfpa|spd|cb|mcb|mlo|mccb|kva|kw|va)\b/gi, (m) => m.toUpperCase());
+  // Title-case the rest
+  s = s.replace(/\b\w/g, (c) => c.toUpperCase());
+  return s;
+}
+
 function verdictDot(v: CompareRow["verdict"]) {
-  const base =
-    "inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]";
+  const base = "inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]";
   if (v === "compliant") {
     return (
       <span
@@ -138,10 +153,7 @@ function verdictDot(v: CompareRow["verdict"]) {
     return (
       <span
         className={base}
-        style={{
-          background: "var(--color-clay-tint)",
-          color: "var(--color-clay)",
-        }}
+        style={{ background: "var(--color-clay-tint)", color: "var(--color-clay)" }}
         title="Non-compliant"
       >
         ✗
@@ -159,18 +171,7 @@ function verdictDot(v: CompareRow["verdict"]) {
       </span>
     );
   }
-  if (v === "informational") {
-    return (
-      <span
-        className={`${base} border border-[var(--color-line)]`}
-        style={{ color: "var(--color-muted)" }}
-        title="Informational"
-      >
-        ·
-      </span>
-    );
-  }
-  // missing_value, missing_requirement, not_extracted
+  // missing_value, not_assigned
   return (
     <span
       className={`${base} border border-dashed border-[var(--color-line-strong)]`}
@@ -183,20 +184,15 @@ function verdictDot(v: CompareRow["verdict"]) {
 }
 
 function VerdictChip({ row }: { row: CompareRow }) {
-  if (row.verdict === "compliant")
-    return <ChipNeutral>OK</ChipNeutral>;
-  if (row.verdict === "non_compliant" && row.severity === "hot")
-    return <ChipColored tone="hot">HIGH</ChipColored>;
+  if (row.verdict === "compliant") return <ChipNeutral>OK</ChipNeutral>;
   if (row.verdict === "non_compliant")
-    return <ChipColored tone="warm">FLAG</ChipColored>;
+    return <ChipColored tone="hot">FLAG</ChipColored>;
   if (row.verdict === "uncertain")
     return <ChipColored tone="warm">VERIFY</ChipColored>;
   if (row.verdict === "missing_value")
     return <ChipNeutral muted>MISSING</ChipNeutral>;
-  if (row.verdict === "missing_requirement")
-    return <ChipNeutral muted>NO SPEC</ChipNeutral>;
-  if (row.verdict === "not_extracted")
-    return <ChipNeutral muted>NOT YET</ChipNeutral>;
+  if (row.verdict === "not_assigned")
+    return <ChipNeutral muted>SETUP</ChipNeutral>;
   return <ChipNeutral muted>—</ChipNeutral>;
 }
 
