@@ -1,263 +1,294 @@
 import { describe, expect, it } from "vitest";
-import { buildRow, isEvaluated } from "./compare";
-import type { AttributeDef } from "@/lib/rag/compare/attributes";
-import type { RetrievedAtom } from "@/lib/rag/retrieve/hybrid";
+import {
+  buildCompareRow,
+  computeVerdict,
+  type Comparator,
+  type RequiredKind,
+} from "./compare";
 
-const atom = (overrides: Partial<RetrievedAtom> = {}): RetrievedAtom => ({
-  id: "atom-1",
-  sourceKind: "spec_paragraph",
-  documentId: "spec-doc-1",
-  pageNum: 4,
-  csiSection: "26 24 16",
-  csiPart: "2",
-  csiArticle: "2.2",
-  csiParagraph: "A",
-  requirementType: "other",
-  referencedStandards: ["UL 67"],
-  content: "UL 67 listed and labeled.",
-  score: 0.9,
-  ranks: { bm25: 1, vector: 1 },
+const item = (overrides: Partial<{
+  id: string;
+  attribute: string;
+  requiredKind: RequiredKind;
+  comparator: Comparator;
+  requiredValue: unknown;
+  unit: string | null;
+  rawQuote: string;
+  csiPath: string;
+}> = {}) => ({
+  id: "item-1",
+  attribute: "aic_ka",
+  requiredKind: "numeric" as RequiredKind,
+  comparator: "≥" as Comparator,
+  requiredValue: 65,
+  unit: "kA",
+  rawQuote: "AIC shall be not less than 65 kA",
+  csiPath: "26 24 16/2/2.05/B",
   ...overrides,
 });
 
-const submittal = (fields: Record<string, unknown> = {}) => ({
-  documentId: "sub-doc-1",
-  fields,
-});
-
-const ruleAttr = (overrides: Partial<AttributeDef> = {}): AttributeDef => ({
-  display: "AIC rating",
-  group: "Ratings & listings",
-  kind: "rule_driven",
-  ruleId: "aic",
-  readSubmitted: (f) =>
-    typeof f.aic_ka === "number" ? `${f.aic_ka} kA` : null,
-  ...overrides,
-});
-
-const equalityAttr = (
-  overrides: Partial<AttributeDef> = {},
-): AttributeDef => ({
-  display: "UL listing",
-  group: "Ratings & listings",
-  kind: "value_equality",
-  readSubmitted: (f) =>
-    Array.isArray(f.listings) ? (f.listings as string[]).join(", ") : null,
-  retrievalQuery: "UL listing",
-  requirementType: null,
-  extractRequired: (a) => {
-    const m = a.content.match(/UL\s+\d+/);
-    return m ? m[0] : null;
-  },
-  inlineCheck: (sub, req) => {
-    if (!sub && !req) return "informational";
-    if (!sub || !req) return "uncertain";
-    return sub.toLowerCase().includes(req.toLowerCase())
-      ? "compliant"
-      : "non_compliant";
-  },
-  ...overrides,
-});
-
-const notExtractedAttr = (): AttributeDef => ({
-  display: "Bus material",
-  group: "Construction",
-  kind: "not_extracted",
-  readSubmitted: () => null,
-});
-
-describe("buildRow — rule_driven attributes", () => {
-  it("populates verdict + severity + spec citation from a matching finding", () => {
-    const row = buildRow({
-      attr: ruleAttr(),
-      submittal: submittal({ aic_ka: 42 }),
-      findings: [
-        {
-          id: "finding-1",
-          ruleId: "aic",
-          verdict: "non_compliant",
-          severity: "hot",
-          summary: "MDP-A AIC 42 kA < required 65 kA. Short by 23 kA.",
-          evidence: [
-            {
-              sourceKind: "submittal_field",
-              documentId: "sub-doc-1",
-              pageNum: 2,
-              snippet: "AIC: 42 kA",
-            },
-            {
-              sourceKind: "spec_paragraph",
-              documentId: "spec-doc-1",
-              pageNum: 4,
-              snippet: "AIC shall be not less than 65,000 amperes RMS.",
-            },
-          ],
-        },
-      ],
-      retrievedAtom: null,
-    });
-    expect(row.verdict).toBe("non_compliant");
-    expect(row.severity).toBe("hot");
-    expect(row.findingId).toBe("finding-1");
-    expect(row.specRef).toBe("p. 4");
-    expect(row.specPage).toBe(4);
-    expect(row.required).toContain("65,000");
-    expect(row.submitted).toBe("42 kA");
-    expect(row.reason).toContain("Short by 23");
+describe("computeVerdict", () => {
+  it("numeric ≥: compliant when submitted >= required", () => {
+    expect(
+      computeVerdict({
+        submittedValue: 65,
+        requiredKind: "numeric",
+        comparator: "≥",
+        requiredValue: 65,
+      }),
+    ).toBe("compliant");
+    expect(
+      computeVerdict({
+        submittedValue: 100,
+        requiredKind: "numeric",
+        comparator: "≥",
+        requiredValue: 65,
+      }),
+    ).toBe("compliant");
   });
 
-  it("uses missing_value verdict when no finding AND no submitted value", () => {
-    const row = buildRow({
-      attr: ruleAttr(),
-      submittal: submittal({}),
-      findings: [],
-      retrievedAtom: null,
+  it("numeric ≥: non_compliant when submitted < required", () => {
+    expect(
+      computeVerdict({
+        submittedValue: 42,
+        requiredKind: "numeric",
+        comparator: "≥",
+        requiredValue: 65,
+      }),
+    ).toBe("non_compliant");
+  });
+
+  it("numeric ≤: compliant when submitted <= required", () => {
+    expect(
+      computeVerdict({
+        submittedValue: 5,
+        requiredKind: "numeric",
+        comparator: "≤",
+        requiredValue: 10,
+      }),
+    ).toBe("compliant");
+  });
+
+  it("numeric =: exact equality only", () => {
+    expect(
+      computeVerdict({
+        submittedValue: 480,
+        requiredKind: "numeric",
+        comparator: "=",
+        requiredValue: 480,
+      }),
+    ).toBe("compliant");
+    expect(
+      computeVerdict({
+        submittedValue: 481,
+        requiredKind: "numeric",
+        comparator: "=",
+        requiredValue: 480,
+      }),
+    ).toBe("non_compliant");
+  });
+
+  it("boolean =: matches the canonical 'series-rated prohibited' case", () => {
+    // Spec says series_rated must be FALSE; submittal IS series-rated.
+    expect(
+      computeVerdict({
+        submittedValue: true,
+        requiredKind: "boolean",
+        comparator: "=",
+        requiredValue: false,
+      }),
+    ).toBe("non_compliant");
+    expect(
+      computeVerdict({
+        submittedValue: false,
+        requiredKind: "boolean",
+        comparator: "=",
+        requiredValue: false,
+      }),
+    ).toBe("compliant");
+  });
+
+  it("enum =: exact string match", () => {
+    expect(
+      computeVerdict({
+        submittedValue: "3R",
+        requiredKind: "enum",
+        comparator: "=",
+        requiredValue: "3R",
+      }),
+    ).toBe("compliant");
+    expect(
+      computeVerdict({
+        submittedValue: "1",
+        requiredKind: "enum",
+        comparator: "=",
+        requiredValue: "3R",
+      }),
+    ).toBe("non_compliant");
+  });
+
+  it("enum in: membership in array of acceptable values", () => {
+    expect(
+      computeVerdict({
+        submittedValue: "3R",
+        requiredKind: "enum",
+        comparator: "in",
+        requiredValue: ["1", "3R"],
+      }),
+    ).toBe("compliant");
+    expect(
+      computeVerdict({
+        submittedValue: "12",
+        requiredKind: "enum",
+        comparator: "in",
+        requiredValue: ["1", "3R"],
+      }),
+    ).toBe("non_compliant");
+  });
+
+  it("manufacturer_list: case-insensitive membership in approved list", () => {
+    expect(
+      computeVerdict({
+        submittedValue: "Square D",
+        requiredKind: "manufacturer_list",
+        comparator: "in",
+        requiredValue: ["Square D", "Eaton"],
+      }),
+    ).toBe("compliant");
+    // Case-insensitive — handles "square d" vs "Square D" drift.
+    expect(
+      computeVerdict({
+        submittedValue: "square d",
+        requiredKind: "manufacturer_list",
+        comparator: "in",
+        requiredValue: ["Square D", "Eaton"],
+      }),
+    ).toBe("compliant");
+    expect(
+      computeVerdict({
+        submittedValue: "Hubbell",
+        requiredKind: "manufacturer_list",
+        comparator: "in",
+        requiredValue: ["Square D", "Eaton"],
+      }),
+    ).toBe("non_compliant");
+  });
+
+  it("qualitative: returns uncertain (LLM judge deferred)", () => {
+    expect(
+      computeVerdict({
+        submittedValue: "Copper bus, fully rated",
+        requiredKind: "qualitative",
+        comparator: "⊇",
+        requiredValue: "Copper, 100% rated",
+      }),
+    ).toBe("uncertain");
+  });
+
+  it("missing_value when submittedValue is null", () => {
+    expect(
+      computeVerdict({
+        submittedValue: null,
+        requiredKind: "numeric",
+        comparator: "≥",
+        requiredValue: 65,
+      }),
+    ).toBe("missing_value");
+  });
+
+  it("uncertain when type shapes don't match (defensive)", () => {
+    expect(
+      computeVerdict({
+        submittedValue: "65",
+        requiredKind: "numeric",
+        comparator: "≥",
+        requiredValue: 65,
+      }),
+    ).toBe("uncertain");
+  });
+});
+
+describe("buildCompareRow", () => {
+  it("missing row when response is null (extraction not yet run)", () => {
+    const row = buildCompareRow({ item: item(), response: null });
+    expect(row.verdict).toBe("missing_value");
+    expect(row.submittedDisplay).toBeNull();
+    expect(row.reason).toContain("not yet run");
+  });
+
+  it("missing row when response.found=false (submittal silent on requirement)", () => {
+    const row = buildCompareRow({
+      item: item(),
+      response: { found: false, value: null, evidenceQuote: null, pageNum: null },
     });
     expect(row.verdict).toBe("missing_value");
-    expect(row.severity).toBeNull();
-    expect(row.findingId).toBeNull();
-    expect(row.reason).toContain("No submitted value");
+    expect(row.reason).toContain("silent");
   });
 
-  it("uses missing_requirement verdict when submitted value exists but no finding fired", () => {
-    const row = buildRow({
-      attr: ruleAttr(),
-      submittal: submittal({ aic_ka: 65 }),
-      findings: [],
-      retrievedAtom: null,
-    });
-    expect(row.verdict).toBe("missing_requirement");
-    expect(row.submitted).toBe("65 kA");
-    expect(row.reason).toContain("spec requirement not retrieved");
-  });
-
-  it("ignores findings whose ruleId doesn't match the attribute", () => {
-    const row = buildRow({
-      attr: ruleAttr(), // aic
-      submittal: submittal({ aic_ka: 65 }),
-      findings: [
-        {
-          id: "f-sccr",
-          ruleId: "sccr",
-          verdict: "non_compliant",
-          severity: "hot",
-          summary: "SCCR fail",
-          evidence: [],
-        },
-      ],
-      retrievedAtom: null,
-    });
-    expect(row.findingId).toBeNull();
-    expect(row.verdict).toBe("missing_requirement");
-  });
-});
-
-describe("buildRow — value_equality attributes", () => {
-  it("returns compliant when submitted contains required (subsumption case)", () => {
-    const row = buildRow({
-      attr: equalityAttr(),
-      submittal: submittal({ listings: ["UL 67"] }),
-      findings: [],
-      retrievedAtom: atom({ content: "Provide UL 67 listed panelboards." }),
+  it("compliant row with formatted submitted value + page citation", () => {
+    const row = buildCompareRow({
+      item: item(),
+      response: {
+        found: true,
+        value: 100,
+        evidenceQuote: "AIC: 100 kA RMS",
+        pageNum: 2,
+      },
     });
     expect(row.verdict).toBe("compliant");
-    expect(row.required).toBe("UL 67");
-    expect(row.submitted).toBe("UL 67");
-    expect(row.specRef).toBe("p. 4");
+    expect(row.submittedDisplay).toBe("100 kA");
+    expect(row.submittalRef).toBe("p.2");
+    expect(row.requiredDisplay).toBe("≥ 65 kA");
   });
 
-  it("returns non_compliant when values mismatch", () => {
-    const row = buildRow({
-      attr: equalityAttr(),
-      submittal: submittal({ listings: ["UL 891"] }),
-      findings: [],
-      retrievedAtom: atom({ content: "Provide UL 67 listed panelboards." }),
+  it("non_compliant row with reason mentioning the comparator", () => {
+    const row = buildCompareRow({
+      item: item(),
+      response: {
+        found: true,
+        value: 42,
+        evidenceQuote: "AIC: 42 kA RMS",
+        pageNum: 2,
+      },
     });
     expect(row.verdict).toBe("non_compliant");
-    expect(row.required).toBe("UL 67");
-    expect(row.submitted).toBe("UL 891");
-    expect(row.reason).toContain("does not match");
+    expect(row.reason).toContain("does not satisfy");
+    expect(row.reason).toContain("≥ 65");
   });
 
-  it("returns missing_value when submittal silent on this attribute", () => {
-    const row = buildRow({
-      attr: equalityAttr(),
-      submittal: submittal({}),
-      findings: [],
-      retrievedAtom: atom({ content: "Provide UL 67 listed panelboards." }),
+  it("formats spec ref from csiPath: '26 24 16/2/2.05/B' → '§2.05/B'", () => {
+    const row = buildCompareRow({ item: item(), response: null });
+    expect(row.specRef).toBe("§2.05/B");
+  });
+
+  it("groups attributes by category heuristic", () => {
+    const aic = buildCompareRow({
+      item: item({ attribute: "aic_ka" }),
+      response: null,
     });
-    expect(row.verdict).toBe("missing_value");
-    expect(row.submitted).toBeNull();
-    expect(row.required).toBe("UL 67");
-  });
-
-  it("returns missing_requirement when retrieve found nothing extractable", () => {
-    const row = buildRow({
-      attr: equalityAttr(),
-      submittal: submittal({ listings: ["UL 891"] }),
-      findings: [],
-      retrievedAtom: null, // retrieve surfaced no spec atom
+    const enclosure = buildCompareRow({
+      item: item({ attribute: "enclosure_nema" }),
+      response: null,
     });
-    expect(row.verdict).toBe("missing_requirement");
-    expect(row.submitted).toBe("UL 891");
-    expect(row.required).toBeNull();
-  });
-
-  it("returns informational when both sides absent (don't dilute pass-rate)", () => {
-    const row = buildRow({
-      attr: equalityAttr(),
-      submittal: submittal({}),
-      findings: [],
-      retrievedAtom: null,
+    const random = buildCompareRow({
+      item: item({ attribute: "other_random_thing" }),
+      response: null,
     });
-    expect(row.verdict).toBe("informational");
-    expect(isEvaluated(row)).toBe(false);
+    expect(aic.group).toBe("Ratings & listings");
+    expect(enclosure.group).toBe("Construction & install");
+    expect(random.group).toBe("Other");
   });
-});
 
-describe("buildRow — not_extracted attributes", () => {
-  it("always returns not_extracted with an explanatory reason", () => {
-    const row = buildRow({
-      attr: notExtractedAttr(),
-      submittal: submittal({}),
-      findings: [],
-      retrievedAtom: null,
+  it("preserves submittal evidence quote for the expand-row footer", () => {
+    const row = buildCompareRow({
+      item: item(),
+      response: {
+        found: true,
+        value: 42,
+        evidenceQuote: "AIC: 42 kA RMS @ 480V (series-rated combination with SWB-1)",
+        pageNum: 2,
+      },
     });
-    expect(row.verdict).toBe("not_extracted");
-    expect(row.reason).toContain("Phase B coverage gap");
-    expect(isEvaluated(row)).toBe(false);
-  });
-});
-
-describe("isEvaluated", () => {
-  // The pass-rate denominator excludes rows where there was nothing
-  // real to compare. Otherwise the demo's "X/Y pass" looks artificially
-  // bad just because we don't extract bus material yet.
-  it.each([
-    ["compliant", true],
-    ["non_compliant", true],
-    ["uncertain", true],
-    ["missing_value", true],
-    ["missing_requirement", false],
-    ["informational", false],
-    ["not_extracted", false],
-  ] as const)("verdict=%s → evaluated=%s", (verdict, expected) => {
-    expect(
-      isEvaluated({
-        attribute: "x",
-        group: "Ratings & listings",
-        kind: "value_equality",
-        specRef: null,
-        required: null,
-        submitted: null,
-        verdict,
-        severity: null,
-        reason: null,
-        findingId: null,
-        submittalDocumentId: null,
-        specDocumentId: null,
-        specPage: null,
-      }),
-    ).toBe(expected);
+    expect(row.submittalQuote).toContain("series-rated combination");
   });
 });
