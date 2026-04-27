@@ -4,6 +4,7 @@ import { analyzeEnclosure } from "@/inngest/functions/analyze-enclosure";
 import { analyzeProject } from "@/inngest/functions/analyze-project";
 import { analyzeSccr } from "@/inngest/functions/analyze-sccr";
 import { embedSpecParagraphs } from "@/inngest/functions/embed-spec-paragraphs";
+import { extractSubmittalAgainstChecklist } from "@/inngest/functions/extract-against-checklist";
 import { ingestDocument } from "@/inngest/functions/ingest-document";
 import { parseSpecChecklist } from "@/inngest/functions/parse-spec-checklist";
 import { parseSpecDocument } from "@/inngest/functions/parse-spec";
@@ -25,5 +26,6 @@ export const { GET, POST, PUT } = serve({
     analyzeSccr,
     analyzeEnclosure,
     suggestSpecAssignmentForSubmittal,
+    extractSubmittalAgainstChecklist,
   ],
 });

@@ -4,7 +4,11 @@ import { and, eq, notInArray } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { memoize } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
-import { specChecklistItems, specParagraphs } from "@/lib/db/schema";
+import {
+  specChecklistItems,
+  specParagraphs,
+  submittalSpecAssignments,
+} from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
 import {
   parseChecklistFromParagraph,
@@ -213,6 +217,46 @@ export const parseSpecChecklist = inngest.createFunction(
         }
       });
     });
+
+    // Fan out: any submittals already assigned to this spec need to
+    // re-run guided extraction now that the checklist exists. Catches
+    // the assigned-before-spec-was-parsed race so the user doesn't
+    // have to re-assign manually.
+    if (allRows.length > 0) {
+      const assignments = await step.run(
+        "find-waiting-assignments",
+        async () => {
+          const rows = await db
+            .select({
+              submittalDocumentId: submittalSpecAssignments.submittalDocumentId,
+              csiSection: submittalSpecAssignments.csiSection,
+            })
+            .from(submittalSpecAssignments)
+            .where(
+              and(
+                eq(submittalSpecAssignments.specDocumentId, documentId),
+                eq(submittalSpecAssignments.workspaceId, workspaceId),
+              ),
+            );
+          return rows;
+        },
+      );
+      for (const a of assignments) {
+        await step.sendEvent(
+          `extract-${a.submittalDocumentId.slice(0, 8)}-${(a.csiSection ?? "any").slice(0, 8)}`,
+          {
+            name: "submittal/extract-against-checklist-ready",
+            data: {
+              submittalDocumentId: a.submittalDocumentId,
+              specDocumentId: documentId,
+              csiSection: a.csiSection,
+              workspaceId,
+              projectId,
+            },
+          },
+        );
+      }
+    }
 
     return {
       documentId,
