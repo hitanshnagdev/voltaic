@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AssignModal, type SpecOption } from "./AssignModal";
 
 type DocumentRow = {
   id: string;
@@ -11,6 +12,8 @@ type DocumentRow = {
   status: string;
   pageCount: number | null;
   uploadedAt: string;
+  /** Count of submittal_spec_assignments rows pointing at this doc (0 for specs). */
+  assignmentCount: number;
 };
 
 type Pending = {
@@ -73,9 +76,11 @@ function formatDate(iso: string) {
 
 export function DocsClient() {
   const [docs, setDocs] = useState<DocumentRow[]>([]);
+  const [specs, setSpecs] = useState<SpecOption[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
+  const [assignTarget, setAssignTarget] = useState<DocumentRow | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -83,6 +88,7 @@ export function DocsClient() {
     if (res.ok) {
       const json = await res.json();
       setDocs(json.documents ?? []);
+      setSpecs(json.specs ?? []);
     }
     setLoading(false);
   }, []);
@@ -320,6 +326,32 @@ export function DocsClient() {
                   <span className="w-28 text-right text-xs text-[var(--color-muted)]">
                     {formatDate(d.uploadedAt)}
                   </span>
+                  {d.docType === "submittal" ? (
+                    <button
+                      onClick={() => setAssignTarget(d)}
+                      className="rounded border px-2 py-0.5 text-[11px] font-medium transition"
+                      style={
+                        d.assignmentCount > 0
+                          ? {
+                              borderColor: "var(--color-line)",
+                              color: "var(--color-ink-soft)",
+                              background: "var(--color-paper)",
+                            }
+                          : {
+                              borderColor: "var(--color-coral-tint-2)",
+                              color: "var(--color-coral-dark)",
+                              background: "var(--color-coral-tint)",
+                            }
+                      }
+                      title="Assign to spec section"
+                    >
+                      {d.assignmentCount > 0
+                        ? `Assigned · ${d.assignmentCount}`
+                        : "Assign"}
+                    </button>
+                  ) : (
+                    <span className="w-[78px]" />
+                  )}
                   <button
                     onClick={() => onDelete(d.id)}
                     className="text-xs text-[var(--color-muted)] hover:text-[var(--color-clay)]"
@@ -333,6 +365,19 @@ export function DocsClient() {
           )}
         </div>
       </div>
+      <AssignModal
+        open={assignTarget !== null}
+        submittal={
+          assignTarget
+            ? { id: assignTarget.id, filename: assignTarget.filename }
+            : null
+        }
+        specs={specs}
+        onClose={() => setAssignTarget(null)}
+        onChanged={() => {
+          void refresh();
+        }}
+      />
     </section>
   );
 }

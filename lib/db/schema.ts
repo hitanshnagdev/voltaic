@@ -295,6 +295,55 @@ export const specChecklistItems = pgTable(
   ],
 );
 
+// Submittal-to-spec assignments. Many-to-many: one submittal can satisfy
+// multiple spec sections (a panelboard cut sheet covers 26 24 16 +
+// 26 28 16); one spec section can have multiple submittals (revisions,
+// multiple panels). The compare page joins on this table to know which
+// spec checklist drives the comparison for any given submittal — replaces
+// the prior implicit `tag_normalized` matching, which silently failed
+// when vendor cut sheets didn't carry the project tag on their cover.
+export const submittalSpecAssignments = pgTable(
+  "submittal_spec_assignments",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    submittalDocumentId: uuid("submittal_document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    specDocumentId: uuid("spec_document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Optional: which CSI section within the spec doc (a multi-section
+    // spec PDF could have multiple targets). Null = "the whole spec doc."
+    csiSection: text("csi_section"),
+    // 'manual'         — user picked explicitly
+    // 'auto-suggested' — model picked, user confirmed
+    // 'auto-applied'   — model picked, awaiting user review (lower trust)
+    source: text("source").notNull().default("manual"),
+    // 0..1 when source !== 'manual'
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("submittal_spec_assignments_workspace_idx").on(t.workspaceId),
+    index("submittal_spec_assignments_submittal_idx").on(t.submittalDocumentId),
+    index("submittal_spec_assignments_spec_idx").on(t.specDocumentId),
+    // Same (submittal, spec, csi_section) triple shouldn't appear twice.
+    uniqueIndex("submittal_spec_assignments_unique_idx").on(
+      t.submittalDocumentId,
+      t.specDocumentId,
+      t.csiSection,
+    ),
+  ],
+);
+
 // Submittal datasheet fields: one row per extracted equipment-field record.
 export const submittalFields = pgTable(
   "submittal_fields",
@@ -631,6 +680,7 @@ export type Document = typeof documents.$inferSelect;
 export type DocumentPage = typeof documentPages.$inferSelect;
 export type SpecParagraph = typeof specParagraphs.$inferSelect;
 export type SpecChecklistItem = typeof specChecklistItems.$inferSelect;
+export type SubmittalSpecAssignment = typeof submittalSpecAssignments.$inferSelect;
 export type SubmittalField = typeof submittalFields.$inferSelect;
 export type DrawingAnnotation = typeof drawingAnnotations.$inferSelect;
 export type DocumentChunk = typeof documentChunks.$inferSelect;
