@@ -10,6 +10,7 @@ import { documentExtract, type DocumentPageCitation } from "@/lib/llm";
 import {
   type CitableField,
   type DroppedField,
+  type FallbackInfo,
   type VerifiedField,
   verifyField,
 } from "@/lib/rag/citation_guard";
@@ -222,6 +223,14 @@ type NormalizedSubmittal = {
    * value — the rule produces an `uncertain` finding either way).
    */
   dropped: DroppedField[];
+  /**
+   * Fields the guard accepted via the empty-citations fallback path
+   * (Anthropic citations API returned zero spans — common for
+   * image-rendered or complex-layout PDFs). These ARE persisted, but
+   * tagged so the runner can log how often the fallback fires. A
+   * sudden spike across many submittals is a regression signal.
+   */
+  fallbacks: FallbackInfo[];
 };
 
 /**
@@ -245,15 +254,26 @@ export function normalizeSubmittalPayload(
   citations: DocumentPageCitation[] = [],
 ): NormalizedSubmittal {
   const dropped: DroppedField[] = [];
+  const fallbacks: FallbackInfo[] = [];
   const evidence: Record<string, FieldEvidence> = {};
 
+  // For the empty-citations fallback path: use the model's own
+  // primary_page as the fallback page number (better than 1).
+  const fallbackPage = payload.primary_page > 0 ? payload.primary_page : 1;
+
   /**
-   * Verify a CitableField, log any drop, and capture the evidence
-   * record on success. Returns the verified field or null.
+   * Verify a CitableField, log any drop or fallback, and capture the
+   * evidence record on success. Returns the verified field or null.
    */
   function guard<T>(name: string, raw: unknown): VerifiedField<T> | null {
-    const { verified, dropped: d } = verifyField<T>(name, raw, citations);
+    const { verified, dropped: d, fallback: fb } = verifyField<T>(
+      name,
+      raw,
+      citations,
+      fallbackPage,
+    );
     if (d) dropped.push(d);
+    if (fb) fallbacks.push(fb);
     if (verified) {
       evidence[name] = {
         evidence_quote: verified.evidenceQuote,
@@ -364,9 +384,8 @@ export function normalizeSubmittalPayload(
   }
 
   // Page number for the row: prefer the AIC field's citation page since
-  // AIC is the most-cited compliance field; fall back to model-reported
-  // primary_page; floor at 1.
-  const fallbackPage = payload.primary_page > 0 ? payload.primary_page : 1;
+  // AIC is the most-cited compliance field; fall back to the
+  // model-reported primary_page (already computed above).
   const aicPage = evidence.aic_ka?.page_num;
   const pageNum = aicPage != null && aicPage > 0 ? aicPage : fallbackPage;
 
@@ -379,6 +398,7 @@ export function normalizeSubmittalPayload(
     submittalStatus: verifiedStatus?.value ?? null,
     pageNum,
     dropped,
+    fallbacks,
   };
 }
 
@@ -604,6 +624,12 @@ export const parseSubmittalDocument = inngest.createFunction(
       // vision — the Inngest run logs show what got rejected and why.
       droppedFieldNames: normalized.dropped.map((d) => d.fieldName),
       droppedCount: normalized.dropped.length,
+      // Empty-citations fallback fired for these fields — model gave a
+      // quote but the API returned no spans to verify against. Watch
+      // for spikes; per-doc fallback rate of 100% is normal for some
+      // PDF render flavors and still gives useful structured data.
+      fallbackFieldNames: normalized.fallbacks.map((f) => f.fieldName),
+      fallbackCount: normalized.fallbacks.length,
     };
   },
 );
