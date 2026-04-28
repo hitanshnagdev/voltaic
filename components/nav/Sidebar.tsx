@@ -96,10 +96,7 @@ const NAV: NavItem[] = [
  * each was a plausible-looking value with no backing data, exactly the
  * kind of fake the post-mortem on session 2026-04-26 named.
  */
-export function Sidebar(props: {
-  projectName: string;
-  openFindingCount: number;
-}) {
+export function Sidebar(props: { projectName: string }) {
   const pathname = usePathname();
 
   return (
@@ -130,10 +127,6 @@ export function Sidebar(props: {
       <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {NAV.map((item) => {
           const active = pathname?.startsWith(item.href);
-          // Only the Today item gets a real badge — open findings count.
-          // Other items get no badge (no real data to back one yet).
-          const showBadge =
-            item.href === "/today" && props.openFindingCount > 0;
           return (
             <Link
               key={item.href}
@@ -146,17 +139,6 @@ export function Sidebar(props: {
                 {item.icon}
               </span>
               {item.label}
-              {showBadge && (
-                <span
-                  className="ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  style={{
-                    background: "var(--color-clay-tint)",
-                    color: "var(--color-clay)",
-                  }}
-                >
-                  {props.openFindingCount}
-                </span>
-              )}
             </Link>
           );
         })}

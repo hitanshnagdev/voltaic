@@ -1,5 +1,4 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { RevisionRibbon } from "@/components/nav/RevisionRibbon";
 import { Sidebar } from "@/components/nav/Sidebar";
 import { TopBar } from "@/components/nav/TopBar";
 import { NoOrgGate } from "@/components/nav/NoOrgGate";
@@ -42,17 +41,8 @@ export default async function AuthedLayout({
         projectName={chrome.projectName}
         projectStatus={chrome.projectStatus}
       />
-      <RevisionRibbon
-        documentCount={chrome.documentCount}
-        equipmentCount={chrome.equipmentCount}
-        openFindingCount={chrome.findingCounts.open}
-        lastAnalysisAt={chrome.lastAnalysisAt}
-      />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          projectName={chrome.projectName}
-          openFindingCount={chrome.findingCounts.open}
-        />
+        <Sidebar projectName={chrome.projectName} />
         <main className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-cream)]">
           {children}
         </main>
