@@ -416,15 +416,21 @@ describe("normalizeSubmittalPayload", () => {
     );
   });
 
-  it("drops every typed field when citations array is empty (no API verification possible)", () => {
+  it("accepts every typed field via fallback when citations array is empty (API returned nothing)", () => {
+    // Empty citations is the API-returned-nothing scenario, common
+    // for image-rendered or complex-layout PDFs. Without the
+    // fallback path the row persists empty even though the model
+    // extracted everything correctly. Per the 2026-04-28 fix the
+    // guard now accepts fields with non-empty quotes when the
+    // citations array is empty, tagging each as a fallback so the
+    // runner can monitor the rate.
     const out = normalizeSubmittalPayload(fullPayload(), []);
-    // The empty-citations scenario is the all-fields-hallucinated worst
-    // case: nothing to verify against, so nothing survives. This is the
-    // failure mode the guard exists to make explicit.
-    expect(out.fields.aic_ka).toBeUndefined();
-    expect(out.fields.sccr_ka).toBeUndefined();
-    expect(out.fields.enclosure_nema).toBeUndefined();
-    expect(out.dropped.length).toBeGreaterThanOrEqual(13); // 3 header + 12 typed - listings tied to UL 67
+    expect(out.fields.aic_ka).toBeDefined();
+    expect(out.fields.sccr_ka).toBeDefined();
+    expect(out.fields.enclosure_nema).toBeDefined();
+    expect(out.dropped).toEqual([]);
+    expect(out.fallbacks.length).toBeGreaterThan(0);
+    expect(out.fallbacks.every((f) => f.reason === "no_citations_returned")).toBe(true);
     // _citations is omitted when the array is empty.
     expect(out.fields._citations).toBeUndefined();
   });

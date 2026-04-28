@@ -54,6 +54,19 @@ export type DroppedField = {
 };
 
 /**
+ * Marks a field that survived the guard via the empty-citations
+ * fallback path: the model produced an evidence_quote, but the API
+ * returned no citations to verify against. We accept the field with
+ * the model's own primary_page (or 1) and flag it so callers can log
+ * how often this fallback fires (regression signal if it spikes).
+ */
+export type FallbackInfo = {
+  fieldName: string;
+  reason: "no_citations_returned";
+  evidenceQuote: string;
+};
+
+/**
  * Threshold for token-overlap matching. The quote must share at least
  * this fraction of its significant tokens with a citation to count as
  * supported. 0.5 catches paraphrasing but rejects "model invented a
@@ -177,20 +190,42 @@ export function findCitationForQuote(
  * page from its supporting citation) or null + a dropped record.
  *
  * Type guard semantics:
- *   - field is `null` → returned as null, NOT dropped (absence is a
- *     legitimate model output, not a hallucination)
- *   - field is malformed (missing keys) → dropped
- *   - quote is empty/whitespace → dropped
- *   - quote has no citation overlap → dropped
- *   - otherwise → verified
+ *   - field is `null`                        → returned as null, NOT dropped
+ *   - field is malformed (missing keys)      → dropped (reason: malformed)
+ *   - quote is empty/whitespace              → dropped (reason: empty_quote)
+ *   - citations is non-empty + no overlap    → dropped (reason: no_citation_support)
+ *   - citations is empty + non-empty quote   → ACCEPTED via fallback path
+ *
+ * Why the fallback: in practice Anthropic's citations API doesn't
+ * always return cited_text spans for every PDF (image-rendered pages,
+ * complex form layouts, certain fonts). When the API returns zero
+ * citations across the entire response, we can't distinguish "model
+ * hallucinated" from "API didn't have anything to cite" — and the
+ * pessimistic default (drop everything) is silently catastrophic:
+ * the user sees an empty submittal_fields row carrying just an
+ * extraction_notes blob, even though the model extracted everything
+ * correctly from the document.
+ *
+ * The fallback is conservative: requires a non-empty evidence_quote
+ * (so the model committed to specific text), passes the field through
+ * with the optional fallbackPage (model's primary_page is the typical
+ * caller value), and emits a FallbackInfo record so the caller can
+ * log the rate of empty-citations fallbacks for monitoring. If the
+ * citations array is non-empty, the strict overlap check still runs
+ * and hallucinated quotes still get dropped.
  */
 export function verifyField<T>(
   fieldName: string,
   field: unknown,
   citations: DocumentPageCitation[],
-): { verified: VerifiedField<T> | null; dropped: DroppedField | null } {
+  fallbackPage = 1,
+): {
+  verified: VerifiedField<T> | null;
+  dropped: DroppedField | null;
+  fallback: FallbackInfo | null;
+} {
   if (field == null) {
-    return { verified: null, dropped: null };
+    return { verified: null, dropped: null, fallback: null };
   }
   if (
     typeof field !== "object" ||
@@ -205,6 +240,7 @@ export function verifyField<T>(
         evidenceQuote: null,
         rawValue: field,
       },
+      fallback: null,
     };
   }
   const f = field as { value: unknown; evidence_quote: unknown };
@@ -218,8 +254,25 @@ export function verifyField<T>(
         evidenceQuote: null,
         rawValue: f.value,
       },
+      fallback: null,
     };
   }
+
+  // Empty-citations fallback: API returned no spans to verify against,
+  // so we can't distinguish hallucination from API limitation. Trust
+  // the model's evidence_quote; tag with FallbackInfo for monitoring.
+  if (citations.length === 0) {
+    return {
+      verified: {
+        value: f.value as T,
+        evidenceQuote: quote,
+        pageNum: fallbackPage > 0 ? fallbackPage : 1,
+      },
+      dropped: null,
+      fallback: { fieldName, reason: "no_citations_returned", evidenceQuote: quote },
+    };
+  }
+
   const citation = findCitationForQuote(quote, citations);
   if (!citation) {
     return {
@@ -230,6 +283,7 @@ export function verifyField<T>(
         evidenceQuote: quote,
         rawValue: f.value,
       },
+      fallback: null,
     };
   }
   return {
@@ -239,5 +293,6 @@ export function verifyField<T>(
       pageNum: citation.startPageNumber,
     },
     dropped: null,
+    fallback: null,
   };
 }

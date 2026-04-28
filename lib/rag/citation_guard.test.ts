@@ -212,6 +212,66 @@ describe("verifyField", () => {
     expect(bool.verified?.value).toBe(true);
   });
 
+  it("falls back gracefully when citations array is empty (API returned nothing)", () => {
+    // Real prod scenario: Anthropic's citations API can return zero
+    // spans for some PDFs (image-rendered, complex layouts). Without
+    // a fallback the guard rejects everything and the row persists
+    // empty. The fallback path accepts the field with the model's
+    // primary_page and emits a FallbackInfo so callers can monitor
+    // how often this fires.
+    const { verified, dropped, fallback } = verifyField<number>(
+      "aic_ka",
+      { value: 42, evidence_quote: "AIC: 42 kA RMS @ 480V" },
+      [], // empty citations
+      3, // fallback page from caller
+    );
+    expect(dropped).toBeNull();
+    expect(verified).toEqual({
+      value: 42,
+      evidenceQuote: "AIC: 42 kA RMS @ 480V",
+      pageNum: 3,
+    });
+    expect(fallback).toEqual({
+      fieldName: "aic_ka",
+      reason: "no_citations_returned",
+      evidenceQuote: "AIC: 42 kA RMS @ 480V",
+    });
+  });
+
+  it("fallback uses pageNum=1 when no fallbackPage is provided", () => {
+    const { verified } = verifyField<number>(
+      "aic_ka",
+      { value: 42, evidence_quote: "AIC: 42 kA" },
+      [],
+    );
+    expect(verified?.pageNum).toBe(1);
+  });
+
+  it("fallback still requires a non-empty quote (won't accept malformed)", () => {
+    const { verified, dropped, fallback } = verifyField<number>(
+      "aic_ka",
+      { value: 42, evidence_quote: "" },
+      [],
+      3,
+    );
+    expect(verified).toBeNull();
+    expect(fallback).toBeNull();
+    expect(dropped?.reason).toBe("empty_quote");
+  });
+
+  it("fallback does NOT fire when citations are non-empty (strict path still runs)", () => {
+    // With non-empty citations, an unsupported quote MUST be dropped
+    // — the fallback only kicks in for the API-returned-nothing case.
+    const { verified, dropped, fallback } = verifyField<number>(
+      "aic_ka",
+      { value: 100, evidence_quote: "AIC: 100 kA at 240V" }, // hallucinated
+      citations,
+    );
+    expect(verified).toBeNull();
+    expect(fallback).toBeNull();
+    expect(dropped?.reason).toBe("no_citation_support");
+  });
+
   it("never drops based on the value matching anything — only on the quote", () => {
     // The value is 999 (clearly wrong), but the quote IS supported by
     // a citation. The guard's job is to verify the model isn't lying
