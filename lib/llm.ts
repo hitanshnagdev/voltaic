@@ -207,6 +207,15 @@ export async function documentExtract<T>(args: {
    * Costs a few extra input tokens; `cited_text` is free.
    */
   enableCitations?: boolean;
+  /**
+   * When true, attach `cache_control: { type: "ephemeral" }` to the
+   * document block so the PDF input gets cached for ~5 min. First
+   * call writes the cache (1.25× input cost on the cached portion);
+   * subsequent calls within the TTL read it (0.1× input cost). Big
+   * win for batched extractions that re-send the same PDF — ~70%
+   * cheaper across a 12-batch run.
+   */
+  cacheDocument?: boolean;
   /** Optional document title — surfaced inside Sonnet's reasoning, not cited from. */
   documentTitle?: string;
 }): Promise<DocumentExtractResult<T>> {
@@ -225,6 +234,8 @@ export async function documentExtract<T>(args: {
   };
   if (args.documentTitle) documentBlock.title = args.documentTitle;
   if (args.enableCitations) documentBlock.citations = { enabled: true };
+  if (args.cacheDocument)
+    documentBlock.cache_control = { type: "ephemeral" };
   try {
     const res = await anthropic().messages.create({
       model,

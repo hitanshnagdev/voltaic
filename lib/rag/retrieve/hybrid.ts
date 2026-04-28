@@ -50,7 +50,8 @@ export type RetrieveFilters = {
 export type RetrievedAtomSourceKind =
   | "spec_paragraph"
   | "submittal_field"
-  | "submittal_response";
+  | "submittal_response"
+  | "submittal_page";
 
 export type RetrievedAtom = {
   id: string;
@@ -121,6 +122,13 @@ type SubmittalResponseRow = {
   attribute: string | null;
   evidenceQuote: string | null;
   value: unknown;
+};
+
+type SubmittalPageRow = {
+  id: string;
+  documentId: string;
+  pageNum: number;
+  textContent: string | null;
 };
 
 function buildSpecFilterFragments(filters: RetrieveFilters | undefined) {
@@ -431,6 +439,48 @@ export async function retrieve(
       if (a) a.ranks.bm25 = fieldRankMap.get(id) ?? null;
     }
 
+    // submittal_pages — generic safety leg over the raw page text
+    // extracted at ingest. Fills the gap when a question isn't covered
+    // by the structured checklist (e.g. "does the cut sheet mention
+    // warranty?"). Pages are long, so we keep the websearch_to_tsquery
+    // (AND-style) — it works the way it does for spec_paragraphs.
+    const pageRows = (await db.execute(sql`
+      WITH pid AS (SELECT ${input.projectId}::uuid AS id),
+           q   AS (SELECT websearch_to_tsquery('english', ${input.query}) AS tsq)
+      SELECT
+        p.id,
+        p.document_id   AS "documentId",
+        p.page_num      AS "pageNum",
+        p.text_content  AS "textContent",
+        ts_rank(
+          to_tsvector('english', coalesce(p.text_content,'')),
+          q.tsq
+        ) AS score
+      FROM document_pages p
+      JOIN documents d ON d.id = p.document_id
+      CROSS JOIN q
+      CROSS JOIN pid
+      WHERE d.project_id = pid.id
+        AND d.doc_type = 'submittal'
+        AND p.text_content IS NOT NULL
+        AND ${docFilter}
+        AND to_tsvector('english', coalesce(p.text_content,'')) @@ q.tsq
+      ORDER BY score DESC
+      LIMIT ${candidatesPerLeg}
+    `)) as unknown as SubmittalPageRow[];
+
+    for (const r of pageRows) {
+      registerSubmittalPage(allAtoms, r);
+    }
+    rankings.push(
+      pageRows.map((r, i) => ({ item: { id: r.id }, rank: i + 1 })),
+    );
+    const pageRankMap = new Map(pageRows.map((r, i) => [r.id, i + 1]));
+    for (const id of pageRankMap.keys()) {
+      const a = allAtoms.get(id);
+      if (a) a.ranks.bm25 = pageRankMap.get(id) ?? null;
+    }
+
     // submittal_checklist_responses — same OR-query for the same
     // reason as submittal_fields above (short rows, multi-word
     // questions otherwise miss).
@@ -542,6 +592,35 @@ function registerSubmittalField(
     vendorModel,
     attribute: null,
     content: submittalFieldContent(r),
+    score: 0,
+    ranks: { bm25: null, vector: null },
+  });
+}
+
+function registerSubmittalPage(
+  map: Map<string, RetrievedAtom>,
+  r: SubmittalPageRow,
+) {
+  if (map.has(r.id)) return;
+  // Trim to a reasonable snippet — full page text in <context> blows
+  // out the prompt budget on multi-page submittals.
+  const text = (r.textContent ?? "").trim().replace(/\s+/g, " ");
+  const snippet = text.length > 800 ? text.slice(0, 800) + "…" : text;
+  map.set(r.id, {
+    id: r.id,
+    sourceKind: "submittal_page",
+    documentId: r.documentId,
+    pageNum: r.pageNum,
+    csiSection: null,
+    csiPart: null,
+    csiArticle: null,
+    csiParagraph: null,
+    requirementType: null,
+    referencedStandards: [],
+    equipmentTag: null,
+    vendorModel: null,
+    attribute: null,
+    content: snippet,
     score: 0,
     ranks: { bm25: null, vector: null },
   });

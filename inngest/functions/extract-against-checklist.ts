@@ -50,7 +50,11 @@ type ExtractReadyEvent = {
   projectId: string;
 };
 
-const CACHE_PURPOSE = "parse_submittal/v:guided-1" as const;
+// Bumped to v:guided-2 with the batching + PDF prompt-cache PR. Old
+// cached entries (from the single-shot extractor that truncated on
+// large checklists) get bypassed so the first re-fire spends real
+// tokens against the new, correct logic.
+const CACHE_PURPOSE = "parse_submittal/v:guided-2" as const;
 
 type ResponseRow = {
   workspaceId: string;

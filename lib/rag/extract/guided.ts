@@ -79,6 +79,10 @@ CRITICAL:
 const buildPrompt = (args: {
   filename: string;
   checklist: ChecklistItemForGuide[];
+  /** 0-based index when batched; used to label the prompt for clarity. */
+  batchIndex?: number;
+  /** Total number of batches; used to label the prompt for clarity. */
+  batchCount?: number;
 }) => {
   const checklistBlock = args.checklist
     .map((item, i) => {
@@ -91,20 +95,54 @@ const buildPrompt = (args: {
    spec_quote="${item.rawQuote.slice(0, 200)}"`;
     })
     .join("\n\n");
+  const batchTag =
+    args.batchIndex != null && args.batchCount != null && args.batchCount > 1
+      ? ` (batch ${args.batchIndex + 1} of ${args.batchCount})`
+      : "";
   return `Filename: ${args.filename}
 
-CHECKLIST (${args.checklist.length} items):
+CHECKLIST${batchTag} (${args.checklist.length} items):
 ${checklistBlock}
 
 For each item above, find the submittal's answer or report it missing. Return JSON.`;
 };
 
 /**
+ * How many checklist items to ship in one Sonnet vision call. Keeps
+ * the response budget under control — at 250 output tokens per item
+ * a batch of 15 needs ~3.75K output, well below the 8K cap. Larger
+ * batches save calls (and total cost via prompt caching on the PDF)
+ * but risk truncation when the model wants to be verbose.
+ *
+ * Picked 15 because:
+ *   - 176-item demo spec splits cleanly into 12 batches
+ *   - First batch is a cache write (~$0.034 for a 5K-token PDF + 4K
+ *     output); subsequent 11 batches read the cached PDF for ~$0.017
+ *     each → ~$0.22 total per submittal extraction
+ *   - Without caching the same 12 calls would be ~$0.60+
+ *   - Without batching the single 176-item call truncates → 0 rows
+ *     persisted (the bug this PR fixes)
+ */
+const BATCH_SIZE = 15;
+
+function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+/**
  * Vision call against the submittal PDF with the checklist as
  * structured context. Citations enabled so each evidence_quote has
- * verifiable backing (Anthropic's citation API). Cap at maxTokens
- * scaled per item count — typical 10-20 item checklists fit
- * comfortably under 8K, but a 40-item checklist would need more.
+ * verifiable backing (Anthropic's citation API).
+ *
+ * Batching: long checklists are split into BATCH_SIZE chunks and
+ * processed sequentially. The PDF document block carries
+ * `cache_control: { type: "ephemeral" }` so all calls after the first
+ * read the PDF input from Anthropic's 5-min cache. Sequential rather
+ * than parallel because (a) the cache only helps once a write has
+ * landed, and (b) parallelism risks hitting the workspace's RPM
+ * ceiling on a single submittal.
  *
  * Exported for the runner; tests mock documentExtract.
  */
@@ -115,13 +153,6 @@ export async function extractAgainstChecklist(args: {
   ctx: LogCtx;
 }): Promise<GuidedResponse[]> {
   if (args.checklist.length === 0) return [];
-
-  // Roughly 200 tokens per response item (value + quote + reasoning),
-  // padded for safety. Bounded between 4K and 16K.
-  const tokensNeeded = Math.min(
-    16_000,
-    Math.max(4_000, args.checklist.length * 250),
-  );
 
   type RawResponse = {
     responses?: Array<{
@@ -134,18 +165,37 @@ export async function extractAgainstChecklist(args: {
     }>;
   };
 
-  const result = await documentExtract<RawResponse>({
-    system: SYSTEM_PROMPT,
-    prompt: buildPrompt(args),
-    pdf: { mediaType: "application/pdf", data: args.pdfBase64 },
-    ctx: args.ctx,
-    purpose: "parse_submittal",
-    enableCitations: true,
-    documentTitle: args.filename,
-    maxTokens: tokensNeeded,
-  });
+  const batches = chunk(args.checklist, BATCH_SIZE);
+  const validated: GuidedResponse[] = [];
 
-  return validateResponses(result.data, args.checklist);
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    // 250 output tokens per item, padded; bounded [3K, 8K] per batch.
+    const tokensNeeded = Math.min(
+      8_000,
+      Math.max(3_000, batch.length * 300),
+    );
+
+    const result = await documentExtract<RawResponse>({
+      system: SYSTEM_PROMPT,
+      prompt: buildPrompt({
+        filename: args.filename,
+        checklist: batch,
+        batchIndex: i,
+        batchCount: batches.length,
+      }),
+      pdf: { mediaType: "application/pdf", data: args.pdfBase64 },
+      ctx: args.ctx,
+      purpose: "parse_submittal",
+      enableCitations: true,
+      cacheDocument: true,
+      documentTitle: args.filename,
+      maxTokens: tokensNeeded,
+    });
+    validated.push(...validateResponses(result.data, batch));
+  }
+
+  return validated;
 }
 
 /**
@@ -249,6 +299,9 @@ export function validateResponses(
   }
   return responses;
 }
+
+// Exposed for unit tests of the batching logic.
+export const _internal = { chunk, BATCH_SIZE };
 
 const SHAPE_MISMATCH = Symbol("SHAPE_MISMATCH");
 

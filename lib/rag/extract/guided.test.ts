@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  _internal,
   validateResponses,
   type ChecklistItemForGuide,
 } from "./guided";
@@ -42,6 +43,29 @@ const checklist = (): ChecklistItemForGuide[] => [
     rawQuote: "Approved: Square D, Eaton, Siemens",
   },
 ];
+
+describe("chunk", () => {
+  it("splits an array into batches of n with last batch shorter", () => {
+    expect(_internal.chunk([1, 2, 3, 4, 5, 6, 7], 3)).toEqual([
+      [1, 2, 3],
+      [4, 5, 6],
+      [7],
+    ]);
+  });
+  it("returns an empty array for empty input", () => {
+    expect(_internal.chunk([], 5)).toEqual([]);
+  });
+  it("returns one batch when n >= length", () => {
+    expect(_internal.chunk([1, 2, 3], 10)).toEqual([[1, 2, 3]]);
+  });
+  it("splits a 176-item checklist into 12 batches at BATCH_SIZE=15", () => {
+    const items = Array.from({ length: 176 }, (_, i) => i);
+    const out = _internal.chunk(items, _internal.BATCH_SIZE);
+    expect(out).toHaveLength(12);
+    expect(out.slice(0, 11).every((b) => b.length === 15)).toBe(true);
+    expect(out[11]).toHaveLength(11);
+  });
+});
 
 describe("validateResponses", () => {
   it("validates a clean payload with one response per item", () => {
