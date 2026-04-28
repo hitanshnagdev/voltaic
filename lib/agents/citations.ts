@@ -70,6 +70,11 @@ export function formatAtomHeader(atom: AtomWithDoc): string {
     return `${head} — ${docName}`;
   }
 
+  if (atom.sourceKind === "submittal_page") {
+    const head = ["SUBMITTAL", "page", page].filter(Boolean).join(" · ");
+    return `${head} — ${docName}`;
+  }
+
   // submittal_response
   const head = ["SUBMITTAL", atom.attribute || "response", page]
     .filter(Boolean)

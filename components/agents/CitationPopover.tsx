@@ -175,7 +175,11 @@ function sourceKindMeta(kind: string): {
   fg: string;
   tint: string;
 } {
-  if (kind === "submittal_field" || kind === "submittal_response") {
+  if (
+    kind === "submittal_field" ||
+    kind === "submittal_response" ||
+    kind === "submittal_page"
+  ) {
     return {
       label: "submittal",
       fg: "var(--color-slate-blue)",

@@ -203,7 +203,11 @@ function formatCitationLabel(c: SerializedCitation): string {
 }
 
 function sourceLabel(kind: string): string {
-  if (kind === "submittal_field" || kind === "submittal_response") {
+  if (
+    kind === "submittal_field" ||
+    kind === "submittal_response" ||
+    kind === "submittal_page"
+  ) {
     return "submittal";
   }
   if (kind === "spec_paragraph") return "spec";
@@ -215,7 +219,11 @@ function paletteFor(kind: string): {
   bg: string;
   fg: string;
 } {
-  if (kind === "submittal_field" || kind === "submittal_response") {
+  if (
+    kind === "submittal_field" ||
+    kind === "submittal_response" ||
+    kind === "submittal_page"
+  ) {
     return {
       border: "var(--color-slate-blue-tint)",
       bg: "var(--color-slate-blue-tint)",
