@@ -2,7 +2,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { CompareEmptyState } from "@/components/compare/CompareEmptyState";
 import { CompareSubmittalSelector } from "@/components/compare/CompareEquipmentSelector";
-import { CompareTable } from "@/components/compare/CompareTable";
+import { CompareTableV2 } from "@/components/compare/CompareTableV2";
 import { TrustFooter } from "@/components/today/TrustFooter";
 import {
   buildCompareDataForSubmittal,
@@ -128,7 +128,7 @@ export default async function ComparePage({
         </button>
       </div>
 
-      <CompareTable data={data} />
+      <CompareTableV2 data={data} />
 
       <TrustFooter />
     </PageShell>
