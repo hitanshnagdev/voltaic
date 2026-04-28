@@ -32,7 +32,7 @@ export function CompareSubmittalSelector({
         params.delete("spec");
         router.push(`/compare?${params.toString()}`);
       }}
-      className="rounded border border-[var(--color-line)] bg-white px-3 py-1.5 text-[13px] font-medium text-[var(--color-ink)] focus:border-[var(--color-coral-dark)] focus:outline-none"
+      className="max-w-[360px] truncate rounded-md border border-[var(--color-line)] bg-[var(--color-paper)] px-2.5 py-1.5 font-mono text-[12px] text-[var(--color-ink-soft)] focus:border-[var(--color-coral-dark)] focus:outline-none"
     >
       {submittals.map((s) => (
         <option key={s.id} value={s.id}>
