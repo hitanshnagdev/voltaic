@@ -49,25 +49,6 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: "/map",
-    label: "System Map",
-    icon: (
-      <svg
-        className="h-4 w-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M4 6h5v5H4zM4 13h5v7H4zM11 4h9v7h-9zM11 13h9v7h-9z"
-        />
-      </svg>
-    ),
-  },
-  {
     href: "/compare",
     label: "Compare",
     icon: (

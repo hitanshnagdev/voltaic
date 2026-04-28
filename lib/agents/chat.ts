@@ -80,7 +80,7 @@ export async function* runAgentChat(input: {
       projectId: input.projectId,
       workspaceId: input.workspaceId,
       sources: { specs: wantSpecs, submittals: wantSubmittals },
-      k: 12,
+      k: input.agent.retrievalLimit,
     });
     atoms = await joinDocumentNames(retrieved);
   }
