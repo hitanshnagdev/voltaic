@@ -160,6 +160,72 @@ function buildSubmittalDocFilter(filters: RetrieveFilters | undefined) {
   return sql.join(clauses, sql` AND `);
 }
 
+/**
+ * Convert a free-text query into an OR-style tsquery string.
+ *
+ * Why: `websearch_to_tsquery` AND-joins every term. That's correct
+ * for paragraph-sized spec content (where the AND keeps precision
+ * high), but submittal records are SHORT — a single row carrying
+ * "MDP-A · Square D · QED-2 — aic_ka: 65" can't possibly contain
+ * every word of a 12-word user question. AND-style queries reliably
+ * miss it; OR-style with ts_rank ordering keeps precision via the
+ * per-leg ranking and recall via the looser matching.
+ *
+ * Tokens are stripped of punctuation (Postgres tsquery syntax is
+ * strict), filtered to length ≥ 3 to avoid stopword noise, and
+ * suffixed with `:*` for prefix matching so 'requir' matches
+ * 'requires'/'required'/'requirement' regardless of stemming.
+ */
+function toOrTsQuery(query: string): string | null {
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^a-z0-9_]/g, ""))
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+  if (tokens.length === 0) return null;
+  return Array.from(new Set(tokens))
+    .map((t) => `${t}:*`)
+    .join(" | ");
+}
+
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "are",
+  "for",
+  "from",
+  "that",
+  "this",
+  "with",
+  "what",
+  "have",
+  "has",
+  "you",
+  "can",
+  "does",
+  "did",
+  "will",
+  "would",
+  "should",
+  "could",
+  "any",
+  "all",
+  "but",
+  "not",
+  "out",
+  "into",
+  "onto",
+  "over",
+  "under",
+  "about",
+  "given",
+  "show",
+  "tell",
+  "please",
+  "check",
+  "whether",
+]);
+
 function flattenFields(fields: Record<string, unknown>): string {
   return Object.entries(fields)
     .filter(([k]) => !k.startsWith("_"))
@@ -303,14 +369,22 @@ export async function retrieve(
 
   if (sources.submittals) {
     const docFilter = buildSubmittalDocFilter(filters);
+    const orQuery = toOrTsQuery(input.query);
 
-    // submittal_fields — BM25 over the jsonb cast to text. No tsvector
-    // column on this table yet (could be added as a generated column
-    // later if recall stays poor); ad-hoc to_tsvector is fine for
-    // submittal_fields' modest row counts.
-    const fieldRows = (await db.execute(sql`
+    // No usable tokens in the query — skip both submittal legs rather
+    // than running them with an empty tsquery (which errors).
+    if (!orQuery) {
+      // fall through to spec-only fusion below
+    }
+
+    // submittal_fields — BM25 over the jsonb cast to text using an
+    // OR-style query (see toOrTsQuery). Submittal rows are short, so
+    // the strict AND from websearch_to_tsquery reliably misses them
+    // for any multi-word user question.
+    const fieldRows = orQuery
+      ? ((await db.execute(sql`
       WITH pid AS (SELECT ${input.projectId}::uuid AS id),
-           q   AS (SELECT websearch_to_tsquery('english', ${input.query}) AS tsq)
+           q   AS (SELECT to_tsquery('english', ${orQuery}) AS tsq)
       SELECT
         f.id,
         f.document_id     AS "documentId",
@@ -342,7 +416,8 @@ export async function retrieve(
             ) @@ q.tsq
       ORDER BY score DESC
       LIMIT ${candidatesPerLeg}
-    `)) as unknown as SubmittalFieldRow[];
+    `)) as unknown as SubmittalFieldRow[])
+      : [];
 
     for (const r of fieldRows) {
       registerSubmittalField(allAtoms, r);
@@ -356,11 +431,13 @@ export async function retrieve(
       if (a) a.ranks.bm25 = fieldRankMap.get(id) ?? null;
     }
 
-    // submittal_checklist_responses — BM25 over the verbatim
-    // evidence_quote (real english/numeric text from the PDF).
-    const respRows = (await db.execute(sql`
+    // submittal_checklist_responses — same OR-query for the same
+    // reason as submittal_fields above (short rows, multi-word
+    // questions otherwise miss).
+    const respRows = orQuery
+      ? ((await db.execute(sql`
       WITH pid AS (SELECT ${input.projectId}::uuid AS id),
-           q   AS (SELECT websearch_to_tsquery('english', ${input.query}) AS tsq)
+           q   AS (SELECT to_tsquery('english', ${orQuery}) AS tsq)
       SELECT
         r.id,
         r.submittal_document_id   AS "submittalDocumentId",
@@ -389,7 +466,8 @@ export async function retrieve(
             ) @@ q.tsq
       ORDER BY score DESC
       LIMIT ${candidatesPerLeg}
-    `)) as unknown as SubmittalResponseRow[];
+    `)) as unknown as SubmittalResponseRow[])
+      : [];
 
     for (const r of respRows) {
       registerSubmittalResponse(allAtoms, r);
@@ -499,4 +577,5 @@ export const _internal = {
   flattenFields,
   submittalFieldContent,
   submittalResponseContent,
+  toOrTsQuery,
 };
