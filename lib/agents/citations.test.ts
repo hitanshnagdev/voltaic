@@ -4,6 +4,7 @@ import {
   buildContextBlock,
   buildDocumentsBlock,
   extractCitations,
+  formatAtomHeader,
   formatCsiPath,
 } from "./citations";
 
@@ -21,6 +22,9 @@ const atom = (overrides: Partial<AtomWithDoc> = {}): AtomWithDoc => ({
   csiParagraph: "B",
   requirementType: "aic",
   referencedStandards: [],
+  equipmentTag: null,
+  vendorModel: null,
+  attribute: null,
   content:
     "Short-circuit current rating shall be not less than 65,000 A RMS symmetrical at 480Y/277V.",
   score: 0.5,
@@ -113,5 +117,59 @@ describe("extractCitations", () => {
     expect(out[0].atom.id).toBe("spec-A");
     expect(out[0].atom.csiPath).toBe("26 24 16 §2/2/A");
     expect(out[0].atom.snippet.length).toBeGreaterThan(0);
+  });
+  it("preserves source kind through serialization", () => {
+    const submittal = atom({
+      id: "sub-1",
+      sourceKind: "submittal_response",
+      attribute: "aic_ka",
+      csiSection: null,
+      csiPart: null,
+      csiArticle: null,
+      csiParagraph: null,
+    });
+    const out = extractCitations("compare [#1]", [submittal]);
+    expect(out[0].atom.sourceKind).toBe("submittal_response");
+  });
+});
+
+describe("formatAtomHeader", () => {
+  it("labels spec atoms with SPEC + CSI path + page", () => {
+    expect(formatAtomHeader(atom())).toContain("SPEC");
+    expect(formatAtomHeader(atom())).toContain("26 24 16");
+    expect(formatAtomHeader(atom())).toContain("p.4");
+  });
+  it("labels submittal_field atoms with SUBMITTAL + tag/vendor", () => {
+    const sub = atom({
+      sourceKind: "submittal_field",
+      equipmentTag: "MDP-A",
+      vendorModel: "Square D QED-2",
+      csiSection: null,
+      csiPart: null,
+      csiArticle: null,
+      csiParagraph: null,
+      pageNum: 3,
+      documentName: "MDP-A Submittal.pdf",
+    });
+    const header = formatAtomHeader(sub);
+    expect(header).toContain("SUBMITTAL");
+    expect(header).toContain("MDP-A");
+    expect(header).toContain("Square D QED-2");
+    expect(header).toContain("p.3");
+    expect(header).toContain("MDP-A Submittal.pdf");
+  });
+  it("labels submittal_response atoms with SUBMITTAL + attribute", () => {
+    const resp = atom({
+      sourceKind: "submittal_response",
+      attribute: "aic_ka",
+      equipmentTag: null,
+      vendorModel: null,
+      csiSection: null,
+      csiPart: null,
+      csiArticle: null,
+      csiParagraph: null,
+    });
+    expect(formatAtomHeader(resp)).toContain("SUBMITTAL");
+    expect(formatAtomHeader(resp)).toContain("aic_ka");
   });
 });

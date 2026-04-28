@@ -26,6 +26,7 @@
     "@anthropic-ai/sdk": "^0.90.0",
     "@aws-sdk/client-s3": "^3.1035.0",
     "@clerk/nextjs": "^7.2.5",
+    "@types/mdast": "^4.0.4",
     "canvas": "^3.2.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
@@ -36,6 +37,9 @@
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "unist-util-visit": "^5.1.0",
     "unpdf": "^1.6.0"
   },
   "devDependencies": {

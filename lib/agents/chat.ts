@@ -66,17 +66,21 @@ export async function* runAgentChat(input: {
     citations: [],
   });
 
-  // Retrieve project corpus context. Currently retrieve() surfaces
-  // only spec_paragraphs; the agent's source_filters.specs flag gates
-  // whether we run it at all. submittals=true is recorded but doesn't
-  // change retrieval yet (no submittal_fields leg in retrieve).
+  // Retrieve project corpus context. retrieve() now surfaces three
+  // source kinds — spec_paragraph, submittal_field, submittal_response
+  // — gated independently by the agent's source_filters. If both
+  // toggles are off the user is signaling "answer from prior chat
+  // context only," which is fine; we skip retrieval entirely.
   let atoms: AtomWithDoc[] = [];
-  if (input.agent.sourceFilters.specs !== false) {
+  const wantSpecs = input.agent.sourceFilters.specs !== false;
+  const wantSubmittals = input.agent.sourceFilters.submittals !== false;
+  if (wantSpecs || wantSubmittals) {
     const retrieved = await retrieve({
       query: userText,
       projectId: input.projectId,
       workspaceId: input.workspaceId,
-      k: 8,
+      sources: { specs: wantSpecs, submittals: wantSubmittals },
+      k: 12,
     });
     atoms = await joinDocumentNames(retrieved);
   }

@@ -5,12 +5,16 @@ import type { SerializedCitation } from "@/lib/db/agents";
 
 /**
  * Citation context popover. Bottom sheet that opens when a chip is
- * clicked. Shows the cited spec passage on the left; the right pane
- * is reserved for the side-by-side submittal value once submittal
- * retrieval is wired (currently shows the document name + a link
- * to the docs page where the user can find the source PDF).
+ * clicked. Two-pane layout:
+ *   - Left:  the cited evidence (spec passage OR submittal value)
+ *   - Right: source document context + a link to open the file
  *
- * Closes on Escape, click outside, or the X button.
+ * Both panes are kind-aware (spec gets the coral palette, submittal
+ * gets the slate-blue palette) so the user can tell at a glance
+ * what they're looking at.
+ *
+ * Rendering the actual PDF bytes with span highlighting is deferred
+ * (U13 Phase C).
  */
 export function CitationPopover(props: {
   citation: SerializedCitation;
@@ -25,8 +29,9 @@ export function CitationPopover(props: {
   }, [props]);
 
   const c = props.citation;
+  const kind = sourceKindMeta(c.atom.sourceKind);
   const docName = c.atom.documentName ?? "source document";
-  const csiHeader = c.atom.csiPath || c.atom.csiSection || docName;
+  const headerLine = headerFor(c);
   const pageBadge = c.atom.pageNum != null ? `p.${c.atom.pageNum}` : null;
 
   return (
@@ -38,8 +43,16 @@ export function CitationPopover(props: {
       <div className="fixed bottom-0 left-0 right-0 z-40 max-h-[60vh] border-t border-[var(--color-line)] bg-[var(--color-paper)] shadow-2xl">
         <div className="border-b border-[var(--color-line-soft)] px-6 py-2.5">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-              Citation context · cited passage
+            <div className="flex items-center gap-3">
+              <span
+                className="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider"
+                style={{ background: kind.tint, color: kind.fg }}
+              >
+                {kind.label}
+              </span>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+                Cited evidence · #{c.index}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <a
@@ -71,23 +84,27 @@ export function CitationPopover(props: {
           </div>
         </div>
 
-        <div className="grid h-full grid-cols-2 divide-x divide-[var(--color-line-soft)] overflow-hidden">
-          <SourcePane
-            kind="SPEC"
-            header={csiHeader}
+        <div className="grid h-full grid-cols-[1.4fr_1fr] divide-x divide-[var(--color-line-soft)] overflow-hidden">
+          <EvidencePane
+            kind={kind}
+            header={headerLine}
             badge={pageBadge}
             documentName={docName}
             snippet={c.atom.snippet}
           />
-          <RelatedPane atomKind={c.atom.sourceKind} documentName={docName} />
+          <DocumentPane
+            documentId={c.atom.documentId}
+            documentName={docName}
+            sourceKindLabel={kind.label}
+          />
         </div>
       </div>
     </>
   );
 }
 
-function SourcePane(props: {
-  kind: string;
+function EvidencePane(props: {
+  kind: ReturnType<typeof sourceKindMeta>;
   header: string;
   badge: string | null;
   documentName: string;
@@ -96,8 +113,8 @@ function SourcePane(props: {
   return (
     <div className="scrollbar-thin overflow-y-auto px-6 py-5">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-          {props.kind}
+        <div className="font-mono text-[12px] text-[var(--color-ink-soft)]">
+          {props.header || "(no header)"}
         </div>
         {props.badge && (
           <div className="font-mono text-[11px] text-[var(--color-muted)]">
@@ -105,17 +122,14 @@ function SourcePane(props: {
           </div>
         )}
       </div>
-      <div className="mt-2 font-mono text-[12px] text-[var(--color-ink-soft)]">
-        {props.header}
-      </div>
       <div className="mt-1 truncate text-[11px] text-[var(--color-muted-soft)]">
         {props.documentName}
       </div>
       <div
         className="mt-4 rounded border-l-4 px-4 py-3 text-[13px] leading-[1.65] text-[var(--color-ink)]"
         style={{
-          borderColor: "var(--color-coral)",
-          background: "var(--color-coral-tint)",
+          borderColor: props.kind.fg,
+          background: props.kind.tint,
         }}
       >
         {props.snippet || "(snippet unavailable)"}
@@ -124,23 +138,66 @@ function SourcePane(props: {
   );
 }
 
-function RelatedPane(props: { atomKind: string; documentName: string }) {
+function DocumentPane(props: {
+  documentId: string;
+  documentName: string;
+  sourceKindLabel: string;
+}) {
   return (
     <div className="scrollbar-thin overflow-y-auto bg-[var(--color-cream-deep)] px-6 py-5">
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-        Related submittal value
+        Source document
       </div>
-      <div className="mt-4 rounded border border-dashed border-[var(--color-line-strong)] px-4 py-6 text-center text-[12px] text-[var(--color-muted)]">
-        Side-by-side submittal value will appear here once submittal-side
-        retrieval lands. Today this pane is reserved for{" "}
-        <span className="font-mono">{props.atomKind}</span> evidence.
+      <div className="mt-2 text-[13px] font-medium text-[var(--color-ink)]">
+        {props.documentName}
       </div>
-      <div className="mt-3 text-[10.5px] text-[var(--color-muted-soft)]">
-        Source document:{" "}
-        <span className="font-mono text-[var(--color-ink-soft)]">
-          {props.documentName}
-        </span>
+      <div className="mt-1 text-[11px] text-[var(--color-muted)]">
+        {props.sourceKindLabel} evidence
+      </div>
+      <div className="mt-4 rounded border border-dashed border-[var(--color-line-strong)] px-4 py-5 text-[12px] text-[var(--color-muted)]">
+        Inline PDF rendering with span highlighting is on the roadmap. For
+        now, open the document to see the cited bytes in context.
+      </div>
+      <div className="mt-3">
+        <a
+          href={`/docs?focus=${props.documentId}`}
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--color-coral-dark)] hover:text-[var(--color-coral)]"
+        >
+          Open in Documents →
+        </a>
       </div>
     </div>
   );
+}
+
+function sourceKindMeta(kind: string): {
+  label: string;
+  fg: string;
+  tint: string;
+} {
+  if (kind === "submittal_field" || kind === "submittal_response") {
+    return {
+      label: "submittal",
+      fg: "var(--color-slate-blue)",
+      tint: "var(--color-slate-blue-tint)",
+    };
+  }
+  if (kind === "spec_paragraph") {
+    return {
+      label: "spec",
+      fg: "var(--color-coral-dark)",
+      tint: "var(--color-coral-tint)",
+    };
+  }
+  return {
+    label: kind,
+    fg: "var(--color-muted)",
+    tint: "var(--color-cream-deep)",
+  };
+}
+
+function headerFor(c: SerializedCitation): string {
+  if (c.atom.csiPath) return c.atom.csiPath;
+  if (c.atom.csiSection) return c.atom.csiSection;
+  return c.atom.documentName ?? "";
 }

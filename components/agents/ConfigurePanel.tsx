@@ -164,7 +164,10 @@ export function ConfigurePanel(props: {
           />
         </Field>
 
-        <Field label="Sources / grounding">
+        <Field
+          label="Sources / grounding"
+          help="Limits which corpus the agent reads. Disabling both forces the agent to answer from prior chat context only."
+        >
           <div className="flex flex-col gap-1.5 text-[13px]">
             <Toggle
               label="Specifications"
@@ -172,10 +175,9 @@ export function ConfigurePanel(props: {
               onChange={(v) => setFilters((f) => ({ ...f, specs: v }))}
             />
             <Toggle
-              label="Submittals (coming soon)"
+              label="Submittals"
               checked={filters.submittals}
               onChange={(v) => setFilters((f) => ({ ...f, submittals: v }))}
-              disabled
             />
           </div>
         </Field>

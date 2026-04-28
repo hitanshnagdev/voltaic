@@ -27,7 +27,7 @@ describe("COMPLIANCE_REVIEWER_SEED", () => {
 
   it("forbids inventing values not present", () => {
     expect(COMPLIANCE_REVIEWER_SYSTEM_PROMPT.toLowerCase()).toMatch(
-      /do not (infer|invent|guess)/i,
+      /(do not|never|don't) (infer|invent|guess)/i,
     );
   });
 });
