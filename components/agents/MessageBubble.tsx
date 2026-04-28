@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -117,6 +118,20 @@ function buildComponents(
           <span className="mx-0.5 inline-flex items-center rounded border border-[var(--color-line)] px-1.5 py-0 align-baseline font-mono text-[10px] text-[var(--color-muted-soft)]">
             [#{n}]
           </span>
+        );
+      }
+      const isInternal = typeof href === "string" && href.startsWith("/");
+      if (isInternal) {
+        // Internal app routes (e.g. the "show all in /compare" CTA the
+        // agent emits for exhaustive questions) use Next's Link so
+        // they navigate in-app instead of opening a new tab.
+        return (
+          <Link
+            href={href}
+            className="inline-flex items-center gap-1 rounded border border-[var(--color-coral-tint-2)] bg-[var(--color-coral-tint)] px-2 py-0.5 text-[12px] font-medium text-[var(--color-coral-dark)] no-underline hover:border-[var(--color-coral)] hover:bg-[var(--color-coral-tint-2)]"
+          >
+            {children}
+          </Link>
         );
       }
       return (

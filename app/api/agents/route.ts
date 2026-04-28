@@ -65,6 +65,8 @@ export async function POST(req: Request) {
       ? b.temperature
       : undefined;
   const sourceFilters = parseSourceFilters(b.sourceFilters);
+  const retrievalLimit =
+    typeof b.retrievalLimit === "number" ? b.retrievalLimit : undefined;
 
   const agent = await createAgent({
     workspaceId: ctx.workspaceId,
@@ -75,6 +77,7 @@ export async function POST(req: Request) {
     model,
     temperature,
     sourceFilters,
+    retrievalLimit,
   });
   return NextResponse.json({ agent });
 }

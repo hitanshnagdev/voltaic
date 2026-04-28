@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import type { SerializedAgent, SourceFilters } from "@/lib/db/agents";
+import {
+  RETRIEVAL_LIMIT_MAX,
+  RETRIEVAL_LIMIT_MIN,
+} from "@/lib/agents/limits";
+import { estimateChatTurnCostUsd } from "@/lib/llm/pricing";
 
 const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6 (recommended)" },
@@ -28,6 +33,7 @@ export function ConfigurePanel(props: {
       model: string;
       temperature: number;
       sourceFilters: SourceFilters;
+      retrievalLimit: number;
     }>,
   ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -39,6 +45,9 @@ export function ConfigurePanel(props: {
   const [model, setModel] = useState(props.agent.model);
   const [temperature, setTemperature] = useState(props.agent.temperature);
   const [filters, setFilters] = useState<SourceFilters>(props.agent.sourceFilters);
+  const [retrievalLimit, setRetrievalLimit] = useState(
+    props.agent.retrievalLimit,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +63,8 @@ export function ConfigurePanel(props: {
     model !== props.agent.model ||
     temperature !== props.agent.temperature ||
     filters.specs !== props.agent.sourceFilters.specs ||
-    filters.submittals !== props.agent.sourceFilters.submittals;
+    filters.submittals !== props.agent.sourceFilters.submittals ||
+    retrievalLimit !== props.agent.retrievalLimit;
 
   const onSave = async () => {
     setSaving(true);
@@ -68,6 +78,7 @@ export function ConfigurePanel(props: {
         model,
         temperature,
         sourceFilters: filters,
+        retrievalLimit,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "save_failed");
@@ -208,6 +219,22 @@ export function ConfigurePanel(props: {
           />
         </Field>
 
+        <Field
+          label={`Sources per answer · ${retrievalLimit}`}
+          help="How many retrieved spec/submittal atoms the agent sees per turn. Higher = better recall on broad questions, more cost per answer."
+        >
+          <input
+            type="range"
+            min={RETRIEVAL_LIMIT_MIN}
+            max={RETRIEVAL_LIMIT_MAX}
+            step={1}
+            value={retrievalLimit}
+            onChange={(e) => setRetrievalLimit(Number(e.target.value))}
+            className="w-full accent-[var(--color-coral)]"
+          />
+          <CostPreview model={model} retrievalLimit={retrievalLimit} />
+        </Field>
+
         {error && (
           <div className="text-[12px] text-[var(--color-clay)]">
             {error}
@@ -276,6 +303,33 @@ function Field(props: {
           {props.help}
         </div>
       )}
+    </div>
+  );
+}
+
+function CostPreview(props: { model: string; retrievalLimit: number }) {
+  const cost = estimateChatTurnCostUsd(props.model, props.retrievalLimit);
+  if (cost == null) return null;
+  // Round to half-cent (cleaner than $0.0247).
+  const rounded = Math.round(cost * 200) / 200;
+  const display =
+    rounded < 0.01 ? `$${cost.toFixed(4)}` : `$${rounded.toFixed(3)}`;
+  const per100 = `$${(cost * 100).toFixed(2)}`;
+  return (
+    <div className="mt-1.5 flex items-baseline gap-3 text-[10.5px] text-[var(--color-muted)]">
+      <span>
+        <span className="font-medium text-[var(--color-ink-soft)]">
+          {display}
+        </span>{" "}
+        per turn
+      </span>
+      <span>
+        <span className="font-medium text-[var(--color-ink-soft)]">
+          {per100}
+        </span>{" "}
+        per 100 turns
+      </span>
+      <span className="text-[var(--color-muted-soft)]">estimate</span>
     </div>
   );
 }

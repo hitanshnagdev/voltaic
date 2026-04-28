@@ -660,6 +660,11 @@ export const agents = pgTable(
     sourceFilters: jsonb("source_filters")
       .notNull()
       .default(sql`'{"specs":true,"submittals":true}'::jsonb`),
+    // How many retrieved atoms to send into the LLM context per turn.
+    // Higher = more recall, more cost. Configurable per agent via the
+    // "Sources per answer" slider in ConfigurePanel. Default 12 (the
+    // historical hard-coded value); valid range 4..50.
+    retrievalLimit: integer("retrieval_limit").notNull().default(12),
     isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

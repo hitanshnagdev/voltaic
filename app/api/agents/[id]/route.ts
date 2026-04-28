@@ -62,6 +62,8 @@ export async function PATCH(
     patch.temperature = b.temperature;
   const sf = parseSourceFilters(b.sourceFilters);
   if (sf) patch.sourceFilters = sf;
+  if (typeof b.retrievalLimit === "number" && Number.isFinite(b.retrievalLimit))
+    patch.retrievalLimit = b.retrievalLimit;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "no_changes" }, { status: 400 });

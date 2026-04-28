@@ -1,5 +1,11 @@
 import "server-only";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import {
+  RETRIEVAL_LIMIT_DEFAULT,
+  RETRIEVAL_LIMIT_MAX,
+  RETRIEVAL_LIMIT_MIN,
+  clampRetrievalLimit,
+} from "@/lib/agents/limits";
 import { db } from "./client";
 import {
   type Agent,
@@ -10,6 +16,14 @@ import {
   chatSessions,
   llmCalls,
 } from "./schema";
+
+// Re-export the limits so existing import paths keep working.
+export {
+  RETRIEVAL_LIMIT_DEFAULT,
+  RETRIEVAL_LIMIT_MAX,
+  RETRIEVAL_LIMIT_MIN,
+  clampRetrievalLimit,
+};
 
 export type SourceFilters = { specs: boolean; submittals: boolean };
 
@@ -37,10 +51,12 @@ export type SerializedAgent = {
   model: string;
   temperature: number;
   sourceFilters: SourceFilters;
+  retrievalLimit: number;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
 };
+
 
 function serializeAgent(row: Agent): SerializedAgent {
   return {
@@ -53,6 +69,7 @@ function serializeAgent(row: Agent): SerializedAgent {
     model: row.model,
     temperature: Number(row.temperature),
     sourceFilters: parseSourceFilters(row.sourceFilters),
+    retrievalLimit: clampRetrievalLimit(Number(row.retrievalLimit)),
     isDefault: row.isDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -88,6 +105,7 @@ export type CreateAgentInput = {
   model?: string;
   temperature?: number;
   sourceFilters?: SourceFilters;
+  retrievalLimit?: number;
 };
 
 export async function createAgent(input: CreateAgentInput) {
@@ -102,6 +120,9 @@ export async function createAgent(input: CreateAgentInput) {
       model: input.model ?? "claude-sonnet-4-6",
       temperature: (input.temperature ?? 0.2).toFixed(2),
       sourceFilters: input.sourceFilters ?? DEFAULT_SOURCE_FILTERS,
+      retrievalLimit: clampRetrievalLimit(
+        input.retrievalLimit ?? RETRIEVAL_LIMIT_DEFAULT,
+      ),
       isDefault: false,
     })
     .returning();
@@ -116,6 +137,7 @@ export type UpdateAgentInput = {
   model?: string;
   temperature?: number;
   sourceFilters?: SourceFilters;
+  retrievalLimit?: number;
 };
 
 export async function updateAgent(
@@ -135,6 +157,8 @@ export async function updateAgent(
     update.temperature = patch.temperature.toFixed(2);
   if (patch.sourceFilters !== undefined)
     update.sourceFilters = patch.sourceFilters;
+  if (patch.retrievalLimit !== undefined)
+    update.retrievalLimit = clampRetrievalLimit(patch.retrievalLimit);
 
   const updated = await db
     .update(agents)
