@@ -1,9 +1,8 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { CompareEmptyState } from "@/components/compare/CompareEmptyState";
-import { CompareSubmittalSelector } from "@/components/compare/CompareEquipmentSelector";
+import { CompareHeaderBar } from "@/components/compare/CompareHeaderBar";
 import { CompareTableV2 } from "@/components/compare/CompareTableV2";
-import { TrustFooter } from "@/components/today/TrustFooter";
 import {
   buildCompareDataForSubmittal,
   listSubmittalsForCompare,
@@ -15,16 +14,20 @@ import { ensureWorkspace } from "@/lib/db/workspace";
 /**
  * /compare — per-submittal compliance table.
  *
- * Phase B PR 3 (DECISIONS.md U12). Reads from the spec-driven path
- * (assignments → checklist → responses), not the prior hardcoded
- * panelboard schema. Replaces the field-fishing extractor bugs from
- * #36 entirely — those code paths no longer exist on this page.
+ * Layout matches the 2026-04-28 design mock:
+ *   - Top bar: breadcrumb (Compare / 26 24 16 Panelboards), submittal
+ *     selector, stats line, action buttons (Compile RFI, Approve as
+ *     noted). Lives in CompareHeaderBar.
+ *   - Optional second bar of assignment chips when a submittal has
+ *     multiple spec assignments.
+ *   - Main: CompareTableV2 with status pills + Filter button + dense
+ *     row table (#, status dot, attribute w/ inline reasoning,
+ *     required, submitted [red on flag], category, verify, ⋯).
  *
  * URL: /compare?submittal=<id>&spec=<id>
  *   - Defaults to the most-flagged submittal in the project.
  *   - When a submittal has multiple assignments, ?spec= picks which
- *     one drives the comparison; chips above the table let the PM
- *     switch.
+ *     one drives the comparison; chips switch.
  */
 export default async function ComparePage({
   searchParams,
@@ -50,8 +53,10 @@ export default async function ComparePage({
 
   if (submittals.length === 0) {
     return (
-      <PageShell projectName={project.name}>
-        <CompareEmptyState reason="no_equipment" />
+      <PageShell>
+        <div className="px-6 py-8">
+          <CompareEmptyState reason="no_equipment" />
+        </div>
       </PageShell>
     );
   }
@@ -71,161 +76,47 @@ export default async function ComparePage({
 
   if ("empty" in result) {
     return (
-      <PageShell projectName={project.name}>
-        <SelectorBar
+      <PageShell>
+        <CompareHeaderBar
           submittals={submittals}
           selectedId={selected.id}
-          summary={null}
+          data={null}
+          projectName={project.name}
         />
-        <CompareEmptyMessage
-          submittalId={selected.id}
-          reason={result.empty}
-        />
+        <div className="px-6 py-8">
+          <CompareEmptyMessage submittalId={selected.id} reason={result.empty} />
+        </div>
       </PageShell>
     );
   }
 
   const data = result;
-  const matchPct =
-    data.summary.evaluatedCount > 0
-      ? Math.round((data.summary.passCount / data.summary.evaluatedCount) * 100)
-      : null;
 
   return (
-    <PageShell projectName={project.name}>
-      <SelectorBar
+    <PageShell>
+      <CompareHeaderBar
         submittals={submittals}
         selectedId={selected.id}
-        summary={{
-          matchPct,
-          flagged: data.summary.flaggedCount,
-          missing: data.summary.missingCount,
-          evaluated: data.summary.evaluatedCount,
-          total: data.summary.totalCount,
-        }}
+        data={data}
+        projectName={project.name}
       />
-
       {data.assignments.length > 1 && (
-        <AssignmentChips data={data} />
+        <div className="border-b border-[var(--color-line)] bg-[var(--color-cream)] px-6 py-2">
+          <AssignmentChips data={data} />
+        </div>
       )}
-
-      <ActiveAssignmentLine data={data} />
-
-      <div className="flex items-center justify-end gap-2 text-[12px]">
-        <button
-          disabled
-          className="cursor-not-allowed rounded border border-[var(--color-line)] px-3 py-1.5 text-[var(--color-muted-soft)]"
-          title="Coming soon"
-        >
-          Compile RFI from {data.summary.flaggedCount} flagged
-        </button>
-        <button
-          disabled
-          className="cursor-not-allowed rounded border border-[var(--color-line)] px-3 py-1.5 text-[var(--color-muted-soft)]"
-          title="Coming soon"
-        >
-          Approve as noted
-        </button>
+      <div className="px-6 py-4">
+        <CompareTableV2 data={data} />
       </div>
-
-      <CompareTableV2 data={data} />
-
-      <TrustFooter />
     </PageShell>
   );
 }
 
-function PageShell({
-  projectName,
-  children,
-}: {
-  projectName: string;
-  children: React.ReactNode;
-}) {
+function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="scrollbar-thin flex-1 overflow-y-auto pb-24">
-      <div className="mx-auto max-w-5xl space-y-6 px-8 py-8">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-ink)]">
-            Compare
-          </h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Per-submittal compliance against the assigned spec ·{" "}
-            <span className="font-medium text-[var(--color-ink-soft)]">
-              {projectName}
-            </span>{" "}
-            ·{" "}
-            <span className="italic">
-              Engineer verification required before action
-            </span>
-          </p>
-        </div>
-        {children}
-      </div>
+    <section className="scrollbar-thin flex flex-1 flex-col overflow-y-auto pb-12">
+      {children}
     </section>
-  );
-}
-
-function SelectorBar({
-  submittals,
-  selectedId,
-  summary,
-}: {
-  submittals: Awaited<ReturnType<typeof listSubmittalsForCompare>>;
-  selectedId: string;
-  summary: {
-    matchPct: number | null;
-    flagged: number;
-    missing: number;
-    evaluated: number;
-    total: number;
-  } | null;
-}) {
-  return (
-    <div className="paper flex flex-wrap items-center gap-4 px-4 py-3">
-      <CompareSubmittalSelector submittals={submittals} selectedId={selectedId} />
-      {summary && (
-        <div className="ml-auto flex items-center gap-3 text-[12px]">
-          {summary.matchPct !== null && (
-            <span className="text-[var(--color-ink-soft)]">
-              <span
-                className="font-mono text-[15px] font-semibold"
-                style={{
-                  color:
-                    summary.matchPct >= 80
-                      ? "#3a5844"
-                      : summary.matchPct >= 50
-                        ? "#87602B"
-                        : "var(--color-clay)",
-                }}
-              >
-                {summary.matchPct}%
-              </span>{" "}
-              <span className="text-[var(--color-muted)]">match</span>
-            </span>
-          )}
-          {summary.flagged > 0 && (
-            <span
-              className="font-mono text-[11px] font-semibold"
-              style={{ color: "var(--color-clay)" }}
-            >
-              · {summary.flagged} flagged
-            </span>
-          )}
-          {summary.missing > 0 && (
-            <span
-              className="font-mono text-[11px] font-semibold"
-              style={{ color: "var(--color-muted)" }}
-            >
-              · {summary.missing} missing
-            </span>
-          )}
-          <span className="text-[var(--color-muted-soft)]">
-            · {summary.evaluated} of {summary.total} evaluated
-          </span>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -264,27 +155,6 @@ function AssignmentChips({ data }: { data: CompareData }) {
   );
 }
 
-function ActiveAssignmentLine({ data }: { data: CompareData }) {
-  return (
-    <div className="text-[11px] text-[var(--color-muted)]">
-      Submittal{" "}
-      <span className="font-medium text-[var(--color-ink-soft)]">
-        {data.submittal.filename}
-      </span>{" "}
-      · spec{" "}
-      <span className="font-medium text-[var(--color-ink-soft)]">
-        {data.activeAssignment.specFilename}
-      </span>
-      {data.activeAssignment.csiSection && (
-        <>
-          {" "}
-          · <span className="font-mono">§{data.activeAssignment.csiSection}</span>
-        </>
-      )}
-    </div>
-  );
-}
-
 function CompareEmptyMessage({
   submittalId,
   reason,
@@ -292,7 +162,10 @@ function CompareEmptyMessage({
   submittalId: string;
   reason: CompareEmptyReason;
 }) {
-  const messages: Record<CompareEmptyReason, { title: string; body: string; cta?: { href: string; label: string } }> = {
+  const messages: Record<
+    CompareEmptyReason,
+    { title: string; body: string; cta?: { href: string; label: string } }
+  > = {
     submittal_not_found: {
       title: "Submittal not found",
       body: "The submittal in the URL doesn't exist in this project.",
