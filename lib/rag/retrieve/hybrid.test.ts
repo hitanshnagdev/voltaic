@@ -67,6 +67,41 @@ describe("submittalFieldContent", () => {
   });
 });
 
+describe("toOrTsQuery", () => {
+  it("ORs significant tokens with prefix match", () => {
+    expect(_internal.toOrTsQuery("AIC requirements")).toBe(
+      "aic:* | requirements:*",
+    );
+  });
+  it("strips punctuation and short tokens", () => {
+    // "MDP-A" → "mdpa" (dash stripped); "65" → dropped (under 3 chars).
+    // "Does" + "the" are stopwords, "65" too short.
+    expect(_internal.toOrTsQuery("Does the MDP-A meet 65 kAIC?")).toBe(
+      "mdpa:* | meet:* | kaic:*",
+    );
+  });
+  it("drops common stopwords", () => {
+    // "what", "are", "the", "for" are stopwords; "submittal" + "values"
+    // remain (longer than 2 chars and not in the list).
+    expect(_internal.toOrTsQuery("what are the submittal values for SCCR")).toBe(
+      "submittal:* | values:* | sccr:*",
+    );
+  });
+  it("dedupes repeated tokens", () => {
+    expect(_internal.toOrTsQuery("aic AIC aic")).toBe("aic:*");
+  });
+  it("returns null when nothing usable remains", () => {
+    expect(_internal.toOrTsQuery("the and for")).toBeNull();
+    expect(_internal.toOrTsQuery("")).toBeNull();
+  });
+  it("preserves underscored attribute names like aic_ka", () => {
+    // "compare" survives (not a stopword); "and" is filtered.
+    expect(_internal.toOrTsQuery("compare aic_ka and sccr_ka")).toBe(
+      "compare:* | aic_ka:* | sccr_ka:*",
+    );
+  });
+});
+
 describe("submittalResponseContent", () => {
   it("renders attribute = value — quote", () => {
     expect(
