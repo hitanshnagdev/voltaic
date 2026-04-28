@@ -1,19 +1,24 @@
 "use client";
 
 import { useMemo } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   SerializedCitation,
   SerializedMessage,
 } from "@/lib/db/agents";
-
-const MARKER_RE = /\[#(\d+)\]/g;
+import { CITATION_URL_PREFIX, remarkCitations } from "@/lib/agents/remarkCitations";
 
 /**
- * Renders one chat message. Assistant messages get inline citation
- * chip parsing — `[#N]` markers in the text are replaced with
- * <CitationChip> elements that open the citation popover. Indices
- * not in the message's `citations` array are left as plain text
- * (the marker still reads naturally if the chip is missing).
+ * Renders one chat message. Assistant messages flow through
+ * react-markdown with remark-gfm (tables, strikethrough, autolinks)
+ * + a custom remark plugin that turns `[#N]` markers into synthetic
+ * link nodes carrying `voltaic-citation://N` URLs. The `components.a`
+ * mapping intercepts those URLs and renders inline citation chips.
+ *
+ * User messages render as plain text (no markdown) — the user's input
+ * is what they typed, not authored markdown, so rendering `**bold**`
+ * literally is the right move.
  */
 export function MessageBubble(props: {
   message: SerializedMessage;
@@ -30,9 +35,9 @@ export function MessageBubble(props: {
     return map;
   }, [props.message.citations]);
 
-  const renderedContent = useMemo(
-    () => renderWithCitations(props.message.content, citationByIndex, props.onCitationClick),
-    [props.message.content, citationByIndex, props.onCitationClick],
+  const components: Components = useMemo(
+    () => buildComponents(citationByIndex, props.onCitationClick),
+    [citationByIndex, props.onCitationClick],
   );
 
   return (
@@ -41,18 +46,23 @@ export function MessageBubble(props: {
     >
       <Avatar role={props.message.role} />
       <div className="min-w-0 flex-1">
-        <div
-          className={`max-w-none whitespace-pre-wrap text-[14px] leading-[1.65] text-[var(--color-ink)] ${
-            isUser
-              ? "rounded-2xl rounded-tr-sm bg-[var(--color-paper)] px-4 py-2.5 inline-block"
-              : ""
-          }`}
-        >
-          {renderedContent}
-          {props.streaming && (
-            <span className="ml-1 inline-block h-3 w-1.5 animate-pulse bg-[var(--color-coral)] align-middle" />
-          )}
-        </div>
+        {isUser ? (
+          <div className="inline-block max-w-none whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--color-paper)] px-4 py-2.5 text-[14px] leading-[1.65] text-[var(--color-ink)]">
+            {props.message.content}
+          </div>
+        ) : (
+          <div className="agent-md max-w-none text-[14px] leading-[1.65] text-[var(--color-ink)]">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkCitations]}
+              components={components}
+            >
+              {props.message.content}
+            </ReactMarkdown>
+            {props.streaming && (
+              <span className="ml-1 inline-block h-3 w-1.5 animate-pulse bg-[var(--color-coral)] align-middle" />
+            )}
+          </div>
+        )}
         {!isUser && props.message.citations.length > 0 && !props.streaming && (
           <CitationFooter
             citations={props.message.citations}
@@ -85,48 +95,43 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
-function renderWithCitations(
-  text: string,
+function buildComponents(
   citationByIndex: Map<number, SerializedCitation>,
-  onClick: (c: SerializedCitation) => void,
-): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-  for (const match of text.matchAll(MARKER_RE)) {
-    const matchStart = match.index ?? 0;
-    if (matchStart > lastIndex) {
-      parts.push(text.slice(lastIndex, matchStart));
-    }
-    const n = Number(match[1]);
-    const citation = citationByIndex.get(n);
-    if (citation) {
-      parts.push(
-        <InlineCitationChip
-          key={`cit-${key++}`}
-          citation={citation}
-          onClick={() => onClick(citation)}
-        />,
-      );
-    } else {
-      // Stream might not have delivered the citations event yet — show
-      // a numeric pill that becomes a clickable chip once metadata
-      // arrives. Looks the same shape, no flash.
-      parts.push(
-        <span
-          key={`pending-${key++}`}
-          className="mx-0.5 inline-flex items-center rounded border border-[var(--color-line)] px-1.5 py-0 align-baseline font-mono text-[10px] text-[var(--color-muted-soft)]"
+  onCitationClick: (c: SerializedCitation) => void,
+): Components {
+  return {
+    a: ({ href, children, ...rest }) => {
+      if (typeof href === "string" && href.startsWith(CITATION_URL_PREFIX)) {
+        const n = Number(href.slice(CITATION_URL_PREFIX.length));
+        const citation = citationByIndex.get(n);
+        if (citation) {
+          return (
+            <InlineCitationChip
+              citation={citation}
+              onClick={() => onCitationClick(citation)}
+            />
+          );
+        }
+        // Marker we haven't bound yet (mid-stream, or hallucinated).
+        return (
+          <span className="mx-0.5 inline-flex items-center rounded border border-[var(--color-line)] px-1.5 py-0 align-baseline font-mono text-[10px] text-[var(--color-muted-soft)]">
+            [#{n}]
+          </span>
+        );
+      }
+      return (
+        <a
+          href={href}
+          {...rest}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[var(--color-coral-dark)] underline decoration-[var(--color-coral-tint-2)] underline-offset-2 hover:text-[var(--color-coral)]"
         >
-          [#{n}]
-        </span>,
+          {children}
+        </a>
       );
-    }
-    lastIndex = matchStart + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-  return parts;
+    },
+  };
 }
 
 function InlineCitationChip(props: {
@@ -134,10 +139,16 @@ function InlineCitationChip(props: {
   onClick: () => void;
 }) {
   const label = formatCitationLabel(props.citation);
+  const palette = paletteFor(props.citation.atom.sourceKind);
   return (
     <button
       onClick={props.onClick}
-      className="mx-0.5 inline-flex items-baseline rounded border border-[var(--color-coral-tint-2)] bg-[var(--color-coral-tint)] px-1.5 py-0 align-baseline font-mono text-[10.5px] text-[var(--color-coral-dark)] hover:border-[var(--color-coral)] hover:text-[var(--color-coral)]"
+      className="mx-0.5 inline-flex items-baseline rounded border px-1.5 py-0 align-baseline font-mono text-[10.5px]"
+      style={{
+        borderColor: palette.border,
+        background: palette.bg,
+        color: palette.fg,
+      }}
       title={`${label} — click to view source`}
     >
       <span className="font-semibold">{props.citation.index}</span>
@@ -155,20 +166,30 @@ function CitationFooter(props: {
       <span className="text-[9.5px] font-mono uppercase tracking-wider text-[var(--color-muted-soft)]">
         Sources
       </span>
-      {props.citations.map((c) => (
-        <button
-          key={`footer-${c.index}`}
-          onClick={() => props.onClick(c)}
-          className="inline-flex items-center gap-1 rounded border border-[var(--color-line)] bg-[var(--color-paper)] px-2 py-0.5 text-[10.5px] hover:border-[var(--color-coral-tint-2)] hover:bg-[var(--color-coral-tint)]"
-        >
-          <span className="font-mono font-semibold text-[var(--color-coral-dark)]">
-            {c.index}
-          </span>
-          <span className="text-[var(--color-ink-soft)]">
-            {formatCitationLabel(c)}
-          </span>
-        </button>
-      ))}
+      {props.citations.map((c) => {
+        const palette = paletteFor(c.atom.sourceKind);
+        return (
+          <button
+            key={`footer-${c.index}`}
+            onClick={() => props.onClick(c)}
+            className="inline-flex items-center gap-1 rounded border bg-[var(--color-paper)] px-2 py-0.5 text-[10.5px] hover:border-[color:var(--color-coral)]"
+            style={{ borderColor: "var(--color-line)" }}
+          >
+            <span
+              className="font-mono font-semibold"
+              style={{ color: palette.fg }}
+            >
+              {c.index}
+            </span>
+            <span className="text-[var(--color-muted-soft)]">
+              {sourceLabel(c.atom.sourceKind)}
+            </span>
+            <span className="text-[var(--color-ink-soft)]">
+              {formatCitationLabel(c)}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -179,4 +200,31 @@ function formatCitationLabel(c: SerializedCitation): string {
   else if (c.atom.documentName) parts.push(c.atom.documentName);
   if (c.atom.pageNum != null) parts.push(`p.${c.atom.pageNum}`);
   return parts.join(" ");
+}
+
+function sourceLabel(kind: string): string {
+  if (kind === "submittal_field" || kind === "submittal_response") {
+    return "submittal";
+  }
+  if (kind === "spec_paragraph") return "spec";
+  return kind;
+}
+
+function paletteFor(kind: string): {
+  border: string;
+  bg: string;
+  fg: string;
+} {
+  if (kind === "submittal_field" || kind === "submittal_response") {
+    return {
+      border: "var(--color-slate-blue-tint)",
+      bg: "var(--color-slate-blue-tint)",
+      fg: "var(--color-slate-blue)",
+    };
+  }
+  return {
+    border: "var(--color-coral-tint-2)",
+    bg: "var(--color-coral-tint)",
+    fg: "var(--color-coral-dark)",
+  };
 }

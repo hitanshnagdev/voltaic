@@ -9,14 +9,13 @@ import type { SerializedCitation } from "@/lib/db/agents";
  *
  * Hallucinated indices (model writes `[#9]` when we only sent 5
  * atoms) are silently dropped — surfacing a chip that points nowhere
- * is worse than dropping it. The visible response still reads fine
- * because the marker text is left in place; only the click-target
- * binding is omitted.
+ * is worse than dropping it.
  */
 const MARKER_RE = /\[#(\d+)\]/g;
 
 export type AtomWithDoc = RetrievedAtom & {
   documentName?: string | null;
+  documentDocType?: string | null;
 };
 
 export function buildContextBlock(atoms: AtomWithDoc[]): string {
@@ -25,10 +24,7 @@ export function buildContextBlock(atoms: AtomWithDoc[]): string {
   }
   const lines = atoms.map((atom, i) => {
     const n = i + 1;
-    const path = formatCsiPath(atom);
-    const page = atom.pageNum != null ? `p.${atom.pageNum}` : "";
-    const docName = atom.documentName ?? "spec document";
-    const header = [path, page, `— ${docName}`].filter(Boolean).join(" ");
+    const header = formatAtomHeader(atom);
     const body = atom.content.replace(/\s+/g, " ").trim();
     return `[#${n}] ${header}\n${body}`;
   });
@@ -46,6 +42,39 @@ export function buildDocumentsBlock(
   const truncated =
     docs.length > limit ? `\n(+ ${docs.length - limit} more)` : "";
   return `<documents>\n${lines.join("\n")}${truncated}\n</documents>`;
+}
+
+/**
+ * Header line that prefixes each atom in the <context> block.
+ * Differentiates spec vs submittal evidence so the model knows what
+ * kind of cite to make ("the spec requires X" vs. "the submittal
+ * states Y") and can structure side-by-side comparisons cleanly.
+ */
+export function formatAtomHeader(atom: AtomWithDoc): string {
+  const docName = atom.documentName ?? "source document";
+  const page = atom.pageNum != null ? `p.${atom.pageNum}` : "";
+
+  if (atom.sourceKind === "spec_paragraph") {
+    const csi = formatCsiPath(atom);
+    const head = ["SPEC", csi, page].filter(Boolean).join(" · ");
+    return `${head} — ${docName}`;
+  }
+
+  if (atom.sourceKind === "submittal_field") {
+    const ident = [atom.equipmentTag, atom.vendorModel]
+      .filter(Boolean)
+      .join(" · ");
+    const head = ["SUBMITTAL", ident || "field record", page]
+      .filter(Boolean)
+      .join(" · ");
+    return `${head} — ${docName}`;
+  }
+
+  // submittal_response
+  const head = ["SUBMITTAL", atom.attribute || "response", page]
+    .filter(Boolean)
+    .join(" · ");
+  return `${head} — ${docName}`;
 }
 
 export function formatCsiPath(atom: RetrievedAtom): string {
