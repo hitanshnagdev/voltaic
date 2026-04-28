@@ -622,7 +622,69 @@ export const findings = pgTable(
   ],
 );
 
-// ---------- chat (Compare view) ----------
+// ---------- agents (chat presets) ----------
+
+// Agents are user-configurable chat presets scoped to a workspace.
+// Each workspace gets a seeded "Compliance Reviewer" agent on bootstrap
+// (see lib/db/workspace.ts seedDefaultAgent). The seeded one is
+// `is_default = true` and refuses delete; users can create more.
+//
+// `source_filters` controls what corpus the retrieve() call surfaces
+// for this agent. Shape: { specs: bool, submittals: bool }. Drawings /
+// RFIs intentionally omitted — those source kinds aren't in v1 (per
+// CLAUDE.md). Add fields here when those parsers ship.
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    // Required: defines the persona. Hidden from end-users in the UI
+    // (Configure panel labels it "System prompt").
+    systemPrompt: text("system_prompt").notNull(),
+    // Optional: project-specific overrides (e.g. "PM is M. Diaz, prefer
+    // verdict-first answers"). Surfaced in the Configure panel as
+    // "Custom prompt." Concatenated to systemPrompt at request time.
+    customPrompt: text("custom_prompt"),
+    model: text("model").notNull().default("claude-sonnet-4-6"),
+    // Stored as numeric to round-trip cleanly. UI clamps to [0, 1].
+    temperature: numeric("temperature", { precision: 3, scale: 2 })
+      .notNull()
+      .default("0.20"),
+    // { specs: bool, submittals: bool }. Defaults: both true.
+    sourceFilters: jsonb("source_filters")
+      .notNull()
+      .default(sql`'{"specs":true,"submittals":true}'::jsonb`),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("agents_workspace_idx").on(t.workspaceId),
+    // One default per workspace at most.
+    uniqueIndex("agents_workspace_default_idx")
+      .on(t.workspaceId)
+      .where(sql`is_default = true`),
+  ],
+);
+
+// ---------- chat (Agents surface) ----------
+//
+// Sessions belong to an agent (and a project, for retrieval scoping).
+// Per docs/HANDOFF-2026-04-27 + 2026-04-27 design conversation: the
+// chat surface is `/agents`, not the v0 Compare flow that U14 demoted.
+// Each session is a free-flowing conversation; the assigned agent's
+// preset (system prompt, model, temperature, source_filters) is read
+// at request time so editing an agent affects new turns immediately.
 
 export const chatSessions = pgTable(
   "chat_sessions",
@@ -636,12 +698,25 @@ export const chatSessions = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
     title: text("title"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Touched on every new message — drives the session list ordering
+    // ("Today · 9:14a") without a per-row MAX(chat_messages.created_at)
+    // subquery in the listing endpoint.
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
-  (t) => [index("chat_sessions_project_idx").on(t.projectId)],
+  (t) => [
+    index("chat_sessions_project_idx").on(t.projectId),
+    index("chat_sessions_agent_idx").on(t.agentId),
+    index("chat_sessions_last_message_idx").on(t.lastMessageAt),
+  ],
 );
 
 export const chatMessages = pgTable(
@@ -751,6 +826,7 @@ export type DocumentChunk = typeof documentChunks.$inferSelect;
 export type Equipment = typeof equipment.$inferSelect;
 export type EquipmentCsiMap = typeof equipmentCsiMap.$inferSelect;
 export type Finding = typeof findings.$inferSelect;
+export type Agent = typeof agents.$inferSelect;
 export type ChatSession = typeof chatSessions.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type LlmCall = typeof llmCalls.$inferSelect;

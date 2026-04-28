@@ -154,6 +154,27 @@ h2 {
 .pulse-dot { animation: pulseDot 1.4s ease-in-out infinite; }
 @keyframes pulseDot { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
+/* Form inputs (used by /agents Configure panel + New Agent dialog) */
+.form-input {
+  width: 100%;
+  background: var(--color-cream);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.form-input:focus {
+  border-color: var(--color-coral-tint-2);
+  background: var(--color-paper);
+}
+.form-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Buttons */
 .btn-primary {
   background: var(--color-coral);
