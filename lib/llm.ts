@@ -308,6 +308,136 @@ export function collectPageCitations(
   return out;
 }
 
+/**
+ * Streaming chat — yields text deltas as they arrive, then a final
+ * "done" event with token counts, cost, and a stop reason. Used by
+ * the /agents route. Logs one llm_calls row when the stream ends.
+ *
+ * Set `cacheSystem` to wrap the system prompt in a cache_control block.
+ * Anthropic ephemeral caching has a 5-min TTL and a 1024-token minimum
+ * for Sonnet — short system prompts won't get a cache hit, but the
+ * call still succeeds. Cost saving applies on subsequent turns within
+ * the TTL window. Do NOT enable on dynamic content (retrieved atoms).
+ */
+export type ChatStreamMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatStreamEvent =
+  | { type: "text"; delta: string }
+  | {
+      type: "done";
+      tokensIn: number;
+      tokensOut: number;
+      costUsd: number | null;
+      stopReason: string | null;
+    }
+  | { type: "error"; message: string };
+
+export async function* chatStream(args: {
+  system: string;
+  messages: ChatStreamMessage[];
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  ctx: LogCtx;
+  purpose?: Purpose;
+  cacheSystem?: boolean;
+  meta?: Record<string, unknown>;
+}): AsyncGenerator<ChatStreamEvent, void, void> {
+  const model = args.model ?? "claude-sonnet-4-6";
+  const purpose = args.purpose ?? "chat";
+  const start = Date.now();
+
+  // System block: either a plain string (cheapest path) or an array
+  // with cache_control on the lone text block.
+  const systemParam = args.cacheSystem
+    ? [
+        {
+          type: "text" as const,
+          text: args.system,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ]
+    : args.system;
+
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let stopReason: string | null = null;
+  let errorMsg: string | null = null;
+
+  try {
+    const stream = anthropic().messages.stream({
+      model,
+      max_tokens: args.maxTokens ?? 2048,
+      temperature: args.temperature,
+      // SDK type lags the cache_control field by a few releases; the
+      // wire shape matches the public API spec.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      system: systemParam as any,
+      messages: args.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    });
+
+    for await (const event of stream) {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
+        yield { type: "text", delta: event.delta.text };
+      } else if (event.type === "message_delta") {
+        if (event.usage?.output_tokens != null) {
+          tokensOut = event.usage.output_tokens;
+        }
+        if (event.delta?.stop_reason) {
+          stopReason = event.delta.stop_reason;
+        }
+      } else if (event.type === "message_start") {
+        if (event.message.usage?.input_tokens != null) {
+          tokensIn = event.message.usage.input_tokens;
+        }
+      }
+    }
+
+    const final = await stream.finalMessage();
+    tokensIn = final.usage.input_tokens;
+    tokensOut = final.usage.output_tokens;
+    stopReason = final.stop_reason ?? stopReason;
+  } catch (err) {
+    errorMsg = err instanceof Error ? err.message : String(err);
+    yield { type: "error", message: errorMsg };
+  } finally {
+    const latencyMs = Date.now() - start;
+    const costUsd =
+      tokensIn > 0 || tokensOut > 0
+        ? estimateCostUsd(model, tokensIn, tokensOut)
+        : null;
+    await logCall({
+      ctx: args.ctx,
+      provider: "anthropic",
+      model,
+      purpose,
+      tokensIn: tokensIn || undefined,
+      tokensOut: tokensOut || undefined,
+      latencyMs,
+      error: errorMsg ?? undefined,
+      meta: args.meta,
+    });
+    if (!errorMsg) {
+      yield {
+        type: "done",
+        tokensIn,
+        tokensOut,
+        costUsd,
+        stopReason,
+      };
+    }
+  }
+}
+
 export async function visionExtract<T>(args: {
   system: string;
   prompt: string;
