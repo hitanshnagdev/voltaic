@@ -44,3 +44,6 @@ next-env.d.ts
 # Claude Code session metadata, worktrees, and per-session caches.
 # Local-only — never tracked.
 .claude/
+
+# clerk configuration (can include secrets)
+/.clerk/

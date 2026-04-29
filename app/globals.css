@@ -647,3 +647,54 @@ h2 {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* ── Landing page (/) ── */
+.landing-display {
+  font-family: var(--font-display), "Tiempos Text", Georgia, serif;
+  letter-spacing: -0.022em;
+  line-height: 0.96;
+  font-weight: 400;
+}
+.landing-mono { font-family: var(--font-mono); }
+
+.landing-gridbg {
+  background-image:
+    linear-gradient(var(--color-line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line-soft) 1px, transparent 1px);
+  background-size: 36px 36px;
+  background-position: -1px -1px;
+}
+
+@keyframes voltMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.marquee-track { animation: voltMarquee 38s linear infinite; }
+
+@keyframes voltLivePulse { 0%, 100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
+.live-dot { animation: voltLivePulse 1.6s ease-in-out infinite; }
+
+.cite {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  background: var(--color-coral-tint);
+  color: var(--color-coral-dark);
+  border: 1px solid var(--color-coral-tint-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+  vertical-align: baseline;
+  letter-spacing: 0;
+}
+.cite.spec {
+  background: var(--color-gold-tint);
+  color: #87602b;
+  border-color: rgba(201, 147, 70, 0.3);
+}
+
+.screen-shadow {
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(40, 30, 20, 0.06),
+    0 24px 60px rgba(40, 30, 20, 0.10);
+}
