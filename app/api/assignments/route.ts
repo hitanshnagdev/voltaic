@@ -1,13 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { inngest } from "@/inngest/client";
 import {
   assignSubmittalToSpec,
   type AssignmentSource,
 } from "@/lib/db/assignments";
-import { db } from "@/lib/db/client";
-import { documents } from "@/lib/db/schema";
 import { getWorkspaceByClerkOrg } from "@/lib/db/workspace";
 
 export const runtime = "nodejs";
@@ -23,6 +19,12 @@ export const runtime = "nodejs";
  *
  * Rejects cross-project assignments and validates that both ids point
  * at the right `doc_type`.
+ *
+ * NOTE: this no longer auto-fires guided extraction. Compliance runs
+ * are now an explicit user action via POST /api/compliance/run, gated
+ * behind the "Run Compliance" CTA on /compare. The previous behavior
+ * silently burned ~$0.30 of Anthropic budget per assignment-create —
+ * fine for AI-curious dev work, fatal for the user's $10 daily cap.
  */
 export async function POST(req: Request) {
   const { orgId } = await auth();
@@ -75,29 +77,6 @@ export async function POST(req: Request) {
       source,
       notes,
     });
-
-    // Fire the guided-extraction event. Even on a no-op (created=false)
-    // we re-fire — the runner is idempotent and will pick up any
-    // checklist changes since the last extraction. Cheap insurance
-    // against the spec-was-re-parsed-after-assignment race.
-    const subRows = await db
-      .select({ projectId: documents.projectId })
-      .from(documents)
-      .where(eq(documents.id, submittalDocumentId))
-      .limit(1);
-    const projectId = subRows[0]?.projectId;
-    if (projectId) {
-      await inngest.send({
-        name: "submittal/extract-against-checklist-ready",
-        data: {
-          submittalDocumentId,
-          specDocumentId,
-          csiSection,
-          workspaceId: workspace.id,
-          projectId,
-        },
-      });
-    }
 
     return NextResponse.json({ assignment: result });
   } catch (e) {
