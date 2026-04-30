@@ -3,12 +3,14 @@ import Link from "next/link";
 import { CompareEmptyState } from "@/components/compare/CompareEmptyState";
 import { CompareHeaderBar } from "@/components/compare/CompareHeaderBar";
 import { CompareTableV2 } from "@/components/compare/CompareTableV2";
+import { ComplianceProgressPanel } from "@/components/compare/ComplianceProgressPanel";
 import { RunComplianceButton } from "@/components/compare/RunComplianceButton";
 import {
   buildCompareDataForSubmittal,
   listSubmittalsForCompare,
   type CompareData,
   type CompareEmptyReason,
+  type ComplianceRunStatus,
 } from "@/lib/db/compare";
 import { ensureWorkspace } from "@/lib/db/workspace";
 
@@ -171,26 +173,43 @@ function CompareEmptyMessage({
     specDocumentId: string;
     specFilename: string;
     csiSection: string | null;
+    complianceRunStatus: ComplianceRunStatus;
   } | null;
 }) {
-  // For the assigned-but-not-yet-extracted cases, render the explicit
-  // "Run Compliance" affordance. Compliance is now opt-in per pair —
-  // the previous auto-fire-on-assignment behavior burned tokens
-  // silently and gave the PM no agency over when the AI ran.
+  // For the assigned-but-not-yet-extracted cases, branch on the
+  // server-persisted run status. The status survives browser
+  // refresh, so a user who clicked Run Compliance and refreshed
+  // sees the in-progress panel — not the misleading "Ready to run"
+  // CTA they'd get from a client-only spinner.
   if (
     (reason === "responses_not_ready" || reason === "checklist_not_ready") &&
     activeAssignment
   ) {
+    const status = activeAssignment.complianceRunStatus;
+
+    if (status === "queued" || status === "running") {
+      return (
+        <ComplianceProgressPanel
+          status={status}
+          specFilename={activeAssignment.specFilename}
+          csiSection={activeAssignment.csiSection}
+        />
+      );
+    }
+
+    const isFailed = status === "failed";
     const checklistStillParsing = reason === "checklist_not_ready";
     return (
       <div className="paper mx-auto mt-12 max-w-xl p-8 text-center">
         <h2 className="text-base font-semibold text-[var(--color-ink)]">
-          Ready to run compliance
+          {isFailed ? "Compliance run failed" : "Ready to run compliance"}
         </h2>
         <p className="mt-2 text-sm text-[var(--color-muted)]">
-          {checklistStillParsing
-            ? "The spec checklist is still being parsed. You can queue compliance now and Voltaic will start as soon as it's ready."
-            : "Voltaic will read this submittal against the spec checklist and grade each requirement with citations. Takes ~30–60 seconds."}
+          {isFailed
+            ? "The previous run hit an error after retries. Re-running usually clears it — the most common cause is a transient timeout."
+            : checklistStillParsing
+              ? "The spec checklist is still being parsed. You can queue compliance now and Voltaic will start as soon as it's ready."
+              : "Voltaic will read this submittal against the spec checklist and grade each requirement with citations. Takes ~30–60 seconds."}
         </p>
         <p className="mt-2 text-[11px] text-[var(--color-muted-soft)]">
           Pair: <span className="font-mono">{activeAssignment.specFilename}</span>

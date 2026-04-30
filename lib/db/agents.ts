@@ -195,6 +195,13 @@ export type SerializedSession = {
   agentId: string;
   projectId: string;
   title: string | null;
+  /**
+   * Pair scope — when both ids are non-null, retrieval restricts to
+   * those two documents. UI uses this to render a "Asking about: …"
+   * chip in the chat header.
+   */
+  scopedSubmittalId: string | null;
+  scopedSpecId: string | null;
   createdAt: string;
   lastMessageAt: string;
   messageCount: number;
@@ -213,6 +220,8 @@ export async function listSessions(params: {
       agentId: chatSessions.agentId,
       projectId: chatSessions.projectId,
       title: chatSessions.title,
+      scopedSubmittalId: chatSessions.scopedSubmittalId,
+      scopedSpecId: chatSessions.scopedSpecId,
       createdAt: chatSessions.createdAt,
       lastMessageAt: chatSessions.lastMessageAt,
       messageCount: sql<number>`(
@@ -237,6 +246,8 @@ export async function listSessions(params: {
       agentId: r.agentId,
       projectId: r.projectId,
       title: r.title,
+      scopedSubmittalId: r.scopedSubmittalId,
+      scopedSpecId: r.scopedSpecId,
       createdAt: r.createdAt.toISOString(),
       lastMessageAt: r.lastMessageAt.toISOString(),
       messageCount: Number(r.messageCount ?? 0),
@@ -263,6 +274,15 @@ export async function createSession(input: {
   projectId: string;
   agentId: string;
   title?: string | null;
+  /**
+   * Optional pair-scope: when both ids are provided, retrieval in
+   * this session restricts to those two documents only. Both must
+   * be set together (a single-doc scope is meaningless for the
+   * spec×submittal product story). Validation happens at the API
+   * boundary; this DB-layer helper trusts what it's given.
+   */
+  scopedSubmittalId?: string | null;
+  scopedSpecId?: string | null;
 }) {
   const inserted = await db
     .insert(chatSessions)
@@ -271,6 +291,8 @@ export async function createSession(input: {
       projectId: input.projectId,
       agentId: input.agentId,
       title: input.title ?? null,
+      scopedSubmittalId: input.scopedSubmittalId ?? null,
+      scopedSpecId: input.scopedSpecId ?? null,
     })
     .returning();
   return inserted[0];

@@ -327,6 +327,12 @@ export const submittalSpecAssignments = pgTable(
     // 0..1 when source !== 'manual'
     confidence: numeric("confidence", { precision: 4, scale: 3 }),
     notes: text("notes"),
+    // Lifecycle of the user-initiated guided-extraction run.
+    // 'not_run' | 'queued' | 'running' | 'ready' | 'failed'
+    complianceRunStatus: text("compliance_run_status")
+      .notNull()
+      .default("not_run"),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -335,6 +341,9 @@ export const submittalSpecAssignments = pgTable(
     index("submittal_spec_assignments_workspace_idx").on(t.workspaceId),
     index("submittal_spec_assignments_submittal_idx").on(t.submittalDocumentId),
     index("submittal_spec_assignments_spec_idx").on(t.specDocumentId),
+    index("submittal_spec_assignments_run_status_idx").on(
+      t.complianceRunStatus,
+    ),
     // Same (submittal, spec, csi_section) triple shouldn't appear twice.
     uniqueIndex("submittal_spec_assignments_unique_idx").on(
       t.submittalDocumentId,
@@ -707,6 +716,18 @@ export const chatSessions = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
     title: text("title"),
+    // Optional pair-scope on this session — when set, retrieval
+    // restricts to (scoped_submittal_id, scoped_spec_id) only,
+    // ignoring the rest of the project corpus. Null = whole-project
+    // scope (the default). Set once at session creation; switching
+    // mid-session creates a new session for cleaner semantics.
+    scopedSubmittalId: uuid("scoped_submittal_id").references(
+      () => documents.id,
+      { onDelete: "set null" },
+    ),
+    scopedSpecId: uuid("scoped_spec_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -49,6 +49,14 @@ export async function* runAgentChat(input: {
   isFirstMessage: boolean;
   /** Title currently on the session row — passed in so we don't re-query. */
   currentTitle: string | null;
+  /**
+   * Optional pair scope from the session row. When both ids are
+   * set, retrieval restricts to those two documents and the
+   * documents-block fed to the model lists ONLY those two — so the
+   * model can't cite anything outside the user's chosen pair.
+   */
+  scopedSubmittalId?: string | null;
+  scopedSpecId?: string | null;
 }): AsyncGenerator<ChatRunEvent, void, void> {
   const userText = input.userMessage.trim();
   if (!userText) {
@@ -71,6 +79,18 @@ export async function* runAgentChat(input: {
   // — gated independently by the agent's source_filters. If both
   // toggles are off the user is signaling "answer from prior chat
   // context only," which is fine; we skip retrieval entirely.
+  //
+  // Pair scope: when the session was created with a (submittal × spec)
+  // pair, restrict retrieval to those two documentIds. The model
+  // literally cannot cite a doc outside the chosen pair — exactly
+  // what the user asked for ("only look into those documents from
+  // the knowledge base, not all").
+  const isScoped =
+    !!input.scopedSubmittalId && !!input.scopedSpecId;
+  const scopedDocIds = isScoped
+    ? [input.scopedSubmittalId as string, input.scopedSpecId as string]
+    : null;
+
   let atoms: AtomWithDoc[] = [];
   const wantSpecs = input.agent.sourceFilters.specs !== false;
   const wantSubmittals = input.agent.sourceFilters.submittals !== false;
@@ -81,21 +101,31 @@ export async function* runAgentChat(input: {
       workspaceId: input.workspaceId,
       sources: { specs: wantSpecs, submittals: wantSubmittals },
       k: input.agent.retrievalLimit,
+      filters: scopedDocIds ? { documentIds: scopedDocIds } : undefined,
     });
     atoms = await joinDocumentNames(retrieved);
   }
 
   // Pull a flat document list so the model can name files in answers
-  // ("the MDP-A submittal mentions..."). Bounded to avoid exploding
-  // context on document-heavy projects.
-  const docList = await db
-    .select({
-      filename: documents.filename,
-      docType: documents.docType,
-    })
-    .from(documents)
-    .where(eq(documents.projectId, input.projectId))
-    .limit(50);
+  // ("the MDP-A submittal mentions..."). When scoped, narrow to the
+  // two pair docs so the model is also told it has only those — no
+  // confusing the model with sibling documents it can't cite.
+  const docList = await (scopedDocIds
+    ? db
+        .select({
+          filename: documents.filename,
+          docType: documents.docType,
+        })
+        .from(documents)
+        .where(inArray(documents.id, scopedDocIds))
+    : db
+        .select({
+          filename: documents.filename,
+          docType: documents.docType,
+        })
+        .from(documents)
+        .where(eq(documents.projectId, input.projectId))
+        .limit(50));
 
   const docsBlock = buildDocumentsBlock(docList);
   const contextBlock = buildContextBlock(atoms);

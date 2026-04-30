@@ -190,6 +190,48 @@ export async function listSpecsForProject(args: {
   }));
 }
 
+/**
+ * Flat list of pairs in a project — used by the agents UI to populate
+ * the "Ask about a pair" selector. Each row is one (submittal × spec
+ * × csi-section) assignment with the filenames joined in for display.
+ *
+ * Ordered by submittal filename for stable picker UX.
+ */
+export type PairOption = {
+  submittalDocumentId: string;
+  submittalFilename: string;
+  specDocumentId: string;
+  specFilename: string;
+  csiSection: string | null;
+};
+
+export async function listPairsForProject(args: {
+  workspaceId: string;
+  projectId: string;
+}): Promise<PairOption[]> {
+  const rows = (await db.execute(sql`
+    SELECT
+      a.submittal_document_id AS "submittalDocumentId",
+      a.spec_document_id      AS "specDocumentId",
+      a.csi_section           AS "csiSection",
+      sub.filename            AS "submittalFilename",
+      spec.filename           AS "specFilename"
+    FROM submittal_spec_assignments a
+    JOIN documents sub  ON sub.id  = a.submittal_document_id
+    JOIN documents spec ON spec.id = a.spec_document_id
+    WHERE a.workspace_id = ${args.workspaceId}::uuid
+      AND sub.project_id = ${args.projectId}::uuid
+    ORDER BY sub.filename ASC, a.created_at ASC
+  `)) as unknown as Array<{
+    submittalDocumentId: string;
+    submittalFilename: string;
+    specDocumentId: string;
+    specFilename: string;
+    csiSection: string | null;
+  }>;
+  return rows;
+}
+
 export type AssignArgs = {
   workspaceId: string;
   submittalDocumentId: string;
