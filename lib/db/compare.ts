@@ -213,13 +213,27 @@ export type CompareEmptyReason =
   | "checklist_not_ready"
   | "responses_not_ready";
 
+/**
+ * Empty-state result from buildCompareDataForSubmittal.
+ *
+ * For reasons where the submittal IS assigned (checklist_not_ready,
+ * responses_not_ready), surface the active assignment so the page can
+ * render a "Run Compliance" CTA targeting the right pair without a
+ * second round-trip.
+ */
+export type CompareEmpty = {
+  empty: CompareEmptyReason;
+  activeAssignment?: CompareSpecAssignment;
+  submittal?: { id: string; filename: string };
+};
+
 export async function buildCompareDataForSubmittal(args: {
   workspaceId: string;
   projectId: string;
   submittalId: string;
   /** Optional spec narrowing — defaults to first assigned. */
   specId?: string | null;
-}): Promise<CompareData | { empty: CompareEmptyReason }> {
+}): Promise<CompareData | CompareEmpty> {
   const { workspaceId, projectId, submittalId, specId } = args;
 
   const subRows = await db
@@ -276,7 +290,13 @@ export async function buildCompareDataForSubmittal(args: {
     })
     .from(specChecklistItems)
     .where(and(...checklistConds));
-  if (items.length === 0) return { empty: "checklist_not_ready" };
+  if (items.length === 0) {
+    return {
+      empty: "checklist_not_ready",
+      activeAssignment: active,
+      submittal,
+    };
+  }
 
   // Load responses for this submittal across the items above.
   const itemIds = items.map((i) => i.id);
@@ -295,7 +315,13 @@ export async function buildCompareDataForSubmittal(args: {
         eq(submittalChecklistResponses.workspaceId, workspaceId),
       ),
     );
-  if (responses.length === 0) return { empty: "responses_not_ready" };
+  if (responses.length === 0) {
+    return {
+      empty: "responses_not_ready",
+      activeAssignment: active,
+      submittal,
+    };
+  }
   const responseByItemId = new Map<string, (typeof responses)[number]>();
   for (const r of responses) responseByItemId.set(r.specChecklistItemId, r);
   void itemIds;

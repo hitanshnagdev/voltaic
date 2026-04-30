@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CompareEmptyState } from "@/components/compare/CompareEmptyState";
 import { CompareHeaderBar } from "@/components/compare/CompareHeaderBar";
 import { CompareTableV2 } from "@/components/compare/CompareTableV2";
+import { RunComplianceButton } from "@/components/compare/RunComplianceButton";
 import {
   buildCompareDataForSubmittal,
   listSubmittalsForCompare,
@@ -84,7 +85,11 @@ export default async function ComparePage({
           projectName={project.name}
         />
         <div className="px-6 py-8">
-          <CompareEmptyMessage submittalId={selected.id} reason={result.empty} />
+          <CompareEmptyMessage
+            submittalId={selected.id}
+            reason={result.empty}
+            activeAssignment={result.activeAssignment ?? null}
+          />
         </div>
       </PageShell>
     );
@@ -158,10 +163,55 @@ function AssignmentChips({ data }: { data: CompareData }) {
 function CompareEmptyMessage({
   submittalId,
   reason,
+  activeAssignment,
 }: {
   submittalId: string;
   reason: CompareEmptyReason;
+  activeAssignment: {
+    specDocumentId: string;
+    specFilename: string;
+    csiSection: string | null;
+  } | null;
 }) {
+  // For the assigned-but-not-yet-extracted cases, render the explicit
+  // "Run Compliance" affordance. Compliance is now opt-in per pair —
+  // the previous auto-fire-on-assignment behavior burned tokens
+  // silently and gave the PM no agency over when the AI ran.
+  if (
+    (reason === "responses_not_ready" || reason === "checklist_not_ready") &&
+    activeAssignment
+  ) {
+    const checklistStillParsing = reason === "checklist_not_ready";
+    return (
+      <div className="paper mx-auto mt-12 max-w-xl p-8 text-center">
+        <h2 className="text-base font-semibold text-[var(--color-ink)]">
+          Ready to run compliance
+        </h2>
+        <p className="mt-2 text-sm text-[var(--color-muted)]">
+          {checklistStillParsing
+            ? "The spec checklist is still being parsed. You can queue compliance now and Voltaic will start as soon as it's ready."
+            : "Voltaic will read this submittal against the spec checklist and grade each requirement with citations. Takes ~30–60 seconds."}
+        </p>
+        <p className="mt-2 text-[11px] text-[var(--color-muted-soft)]">
+          Pair: <span className="font-mono">{activeAssignment.specFilename}</span>
+          {activeAssignment.csiSection && (
+            <span className="font-mono"> · §{activeAssignment.csiSection}</span>
+          )}
+        </p>
+        <div className="mt-6 flex justify-center">
+          <RunComplianceButton
+            submittalDocumentId={submittalId}
+            specDocumentId={activeAssignment.specDocumentId}
+            csiSection={activeAssignment.csiSection}
+          />
+        </div>
+        <p className="mt-4 text-[10px] text-[var(--color-muted-soft)]">
+          AI-flagged · Engineer verifies before action.
+        </p>
+      </div>
+    );
+  }
+
   const messages: Record<
     CompareEmptyReason,
     { title: string; body: string; cta?: { href: string; label: string } }
@@ -177,7 +227,7 @@ function CompareEmptyMessage({
     },
     checklist_not_ready: {
       title: "Spec checklist not ready",
-      body: "The assigned spec hasn't finished extracting its checklist yet. This usually finishes in under a minute. Refresh shortly.",
+      body: "The assigned spec hasn't finished extracting its checklist yet. Refresh shortly.",
     },
     responses_not_ready: {
       title: "Submittal extraction in progress",
