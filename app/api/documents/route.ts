@@ -2,8 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import {
-  countAssignmentsByDocument,
   listSpecsForProject,
+  summarizeAssignmentsByDocument,
 } from "@/lib/db/assignments";
 import { db } from "@/lib/db/client";
 import { documents, projects } from "@/lib/db/schema";
@@ -32,15 +32,15 @@ export async function GET() {
     return NextResponse.json({ documents: [], specs: [] });
   }
 
-  // Single round-trip: docs + assignment counts + spec picker options.
+  // Single round-trip: docs + assignment summaries + spec picker options.
   // The docs page needs all three on every render.
-  const [rows, assignmentCounts, specs] = await Promise.all([
+  const [rows, assignmentSummaries, specs] = await Promise.all([
     db
       .select()
       .from(documents)
       .where(eq(documents.projectId, project.id))
       .orderBy(desc(documents.uploadedAt)),
-    countAssignmentsByDocument({
+    summarizeAssignmentsByDocument({
       workspaceId: workspace.id,
       projectId: project.id,
     }),
@@ -50,10 +50,16 @@ export async function GET() {
     }),
   ]);
 
-  const documentsWithCounts = rows.map((r) => ({
-    ...r,
-    assignmentCount: assignmentCounts.get(r.id) ?? 0,
-  }));
+  const documentsWithCounts = rows.map((r) => {
+    const summary = assignmentSummaries.get(r.id);
+    return {
+      ...r,
+      assignmentCount: summary?.count ?? 0,
+      // For non-submittal rows the badge is never rendered, but
+      // returning 'unassigned' keeps the wire shape uniform.
+      pairState: summary?.pairState ?? "unassigned",
+    };
+  });
 
   return NextResponse.json({ documents: documentsWithCounts, specs });
 }

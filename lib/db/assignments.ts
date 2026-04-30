@@ -89,26 +89,64 @@ export async function listAssignmentsForSubmittal(args: {
 }
 
 /**
- * One row per (submittal, count) for a project — used by the documents
- * page to show "2 assignments" badges next to each submittal without
- * an N+1 query.
+ * Pair state for a submittal in the docs UI. Hierarchy when a
+ * submittal has multiple assignments — strongest signal wins:
+ *
+ *   confirmed  ← any 'manual' assignment (PM picked it)
+ *   auto-paired ← any 'auto-applied' (cross-ref evidence, future tier)
+ *   suggested  ← only 'auto-suggested' (cover-text similarity)
+ *   unassigned ← zero assignments
  */
-export async function countAssignmentsByDocument(args: {
+export type PairState =
+  | "unassigned"
+  | "suggested"
+  | "auto-paired"
+  | "confirmed";
+
+export type AssignmentSummary = {
+  count: number;
+  pairState: PairState;
+};
+
+/**
+ * One row per (submittal, summary) for a project — used by the docs
+ * page to render assignment counts and pair-state badges without an
+ * N+1 query.
+ */
+export async function summarizeAssignmentsByDocument(args: {
   workspaceId: string;
   projectId: string;
-}): Promise<Map<string, number>> {
+}): Promise<Map<string, AssignmentSummary>> {
   const rows = (await db.execute(sql`
     SELECT
       a.submittal_document_id AS "submittalDocumentId",
-      COUNT(*)::int           AS n
+      COUNT(*)::int           AS n,
+      BOOL_OR(a.source = 'manual')         AS "hasManual",
+      BOOL_OR(a.source = 'auto-applied')   AS "hasAutoApplied",
+      BOOL_OR(a.source = 'auto-suggested') AS "hasAutoSuggested"
     FROM submittal_spec_assignments a
     JOIN documents d ON d.id = a.submittal_document_id
     WHERE a.workspace_id = ${args.workspaceId}::uuid
       AND d.project_id   = ${args.projectId}::uuid
     GROUP BY a.submittal_document_id
-  `)) as unknown as Array<{ submittalDocumentId: string; n: number }>;
-  const out = new Map<string, number>();
-  for (const r of rows) out.set(r.submittalDocumentId, Number(r.n));
+  `)) as unknown as Array<{
+    submittalDocumentId: string;
+    n: number;
+    hasManual: boolean;
+    hasAutoApplied: boolean;
+    hasAutoSuggested: boolean;
+  }>;
+  const out = new Map<string, AssignmentSummary>();
+  for (const r of rows) {
+    const pairState: PairState = r.hasManual
+      ? "confirmed"
+      : r.hasAutoApplied
+        ? "auto-paired"
+        : r.hasAutoSuggested
+          ? "suggested"
+          : "unassigned";
+    out.set(r.submittalDocumentId, { count: Number(r.n), pairState });
+  }
   return out;
 }
 
