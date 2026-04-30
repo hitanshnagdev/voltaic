@@ -26,7 +26,7 @@ export async function GET(
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
@@ -38,11 +38,35 @@ export async function POST(
   if (!agent) {
     return NextResponse.json({ error: "agent_not_found" }, { status: 404 });
   }
+
+  // Optional pair scope (whole-project default). Body is permissive
+  // — empty / no-body POST keeps the prior behavior. Both ids must
+  // be set together for scope to apply.
+  let scopedSubmittalId: string | null = null;
+  let scopedSpecId: string | null = null;
+  try {
+    const body = await req.json().catch(() => null);
+    if (body && typeof body === "object") {
+      const b = body as Record<string, unknown>;
+      if (
+        typeof b.scopedSubmittalId === "string" &&
+        typeof b.scopedSpecId === "string"
+      ) {
+        scopedSubmittalId = b.scopedSubmittalId;
+        scopedSpecId = b.scopedSpecId;
+      }
+    }
+  } catch {
+    // tolerate missing body
+  }
+
   const session = await createSession({
     workspaceId: ctx.workspaceId,
     projectId: ctx.projectId,
     agentId: id,
     title: null,
+    scopedSubmittalId,
+    scopedSpecId,
   });
   return NextResponse.json({
     session: {
@@ -50,6 +74,8 @@ export async function POST(
       agentId: session.agentId,
       projectId: session.projectId,
       title: session.title,
+      scopedSubmittalId: session.scopedSubmittalId,
+      scopedSpecId: session.scopedSpecId,
       createdAt: session.createdAt.toISOString(),
       lastMessageAt: session.lastMessageAt.toISOString(),
       messageCount: 0,

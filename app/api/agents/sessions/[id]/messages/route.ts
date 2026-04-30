@@ -89,6 +89,8 @@ export async function POST(
           userMessage: content,
           isFirstMessage,
           currentTitle: session.title,
+          scopedSubmittalId: session.scopedSubmittalId,
+          scopedSpecId: session.scopedSpecId,
         })) {
           if (ev.type === "text") send("text", { delta: ev.delta });
           else if (ev.type === "citations")

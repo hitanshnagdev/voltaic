@@ -1,14 +1,17 @@
 "use client";
 
 import type { SerializedAgent, SerializedSession } from "@/lib/db/agents";
+import { PairScopePicker, type PairOption } from "./PairScopePicker";
 import type { SessionCost } from "./AgentsClient";
 
 export function ChatHeader(props: {
   agent: SerializedAgent;
   session: SerializedSession | null;
+  activePair: PairOption | null;
   cost: SessionCost | null;
   configureOpen: boolean;
   onToggleConfigure: () => void;
+  onPickPair: (pair: PairOption | null) => void;
   projectName: string;
 }) {
   const title = props.session?.title ?? "New conversation";
@@ -39,6 +42,7 @@ export function ChatHeader(props: {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <PairScopePicker active={props.activePair} onPick={props.onPickPair} />
         <button
           onClick={props.onToggleConfigure}
           className={`rounded border px-3 py-1.5 text-[12px] font-medium transition ${

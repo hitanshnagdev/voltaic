@@ -14,6 +14,7 @@ import { ChatThread } from "./ChatThread";
 import { CitationPopover } from "./CitationPopover";
 import { ConfigurePanel } from "./ConfigurePanel";
 import { NewAgentDialog } from "./NewAgentDialog";
+import type { PairOption } from "./PairScopePicker";
 
 export type SessionCost = {
   tokensIn: number;
@@ -332,20 +333,60 @@ export function AgentsClient(props: {
 
   // ---------- session CRUD ----------
 
-  const startNewSession = useCallback(async () => {
-    if (!selectedAgentId) return;
-    const res = await fetch(`/api/agents/${selectedAgentId}/sessions`, {
-      method: "POST",
-    });
-    if (!res.ok) return;
-    const json = (await res.json()) as { session: SerializedSession };
-    setSessions((prev) => [json.session, ...prev]);
-    setSelectedSessionId(json.session.id);
-    setMessages([]);
-    setCost(null);
-    setStreaming(null);
-    setStreamError(null);
-  }, [selectedAgentId]);
+  const startNewSession = useCallback(
+    async (pair?: PairOption | null) => {
+      if (!selectedAgentId) return;
+      const body =
+        pair && pair.submittalDocumentId && pair.specDocumentId
+          ? JSON.stringify({
+              scopedSubmittalId: pair.submittalDocumentId,
+              scopedSpecId: pair.specDocumentId,
+            })
+          : undefined;
+      const res = await fetch(`/api/agents/${selectedAgentId}/sessions`, {
+        method: "POST",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body,
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { session: SerializedSession };
+      setSessions((prev) => [json.session, ...prev]);
+      setSelectedSessionId(json.session.id);
+      setMessages([]);
+      setCost(null);
+      setStreaming(null);
+      setStreamError(null);
+    },
+    [selectedAgentId],
+  );
+
+  // Resolve the current session's scope to a full PairOption (with
+  // filenames) when the picker opens, so the chip + selector show
+  // human-readable labels even if the user landed directly on a
+  // pre-existing scoped session via URL.
+  const [pairsCache, setPairsCache] = useState<PairOption[]>([]);
+  useEffect(() => {
+    if (pairsCache.length > 0) return;
+    void fetch("/api/pairs")
+      .then((r) => (r.ok ? r.json() : { pairs: [] }))
+      .then((j: { pairs: PairOption[] }) => setPairsCache(j.pairs ?? []));
+  }, [pairsCache.length]);
+
+  const activePair = useMemo<PairOption | null>(() => {
+    if (
+      !selectedSession ||
+      !selectedSession.scopedSubmittalId ||
+      !selectedSession.scopedSpecId
+    )
+      return null;
+    return (
+      pairsCache.find(
+        (p) =>
+          p.submittalDocumentId === selectedSession.scopedSubmittalId &&
+          p.specDocumentId === selectedSession.scopedSpecId,
+      ) ?? null
+    );
+  }, [selectedSession, pairsCache]);
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
@@ -371,7 +412,7 @@ export function AgentsClient(props: {
         onSelectAgent={setSelectedAgentId}
         onSelectSession={setSelectedSessionId}
         onNewAgent={() => setNewAgentOpen(true)}
-        onNewSession={startNewSession}
+        onNewSession={() => void startNewSession()}
         onDeleteSession={deleteSession}
       />
 
@@ -381,9 +422,16 @@ export function AgentsClient(props: {
             <ChatHeader
               agent={selectedAgent}
               session={selectedSession}
+              activePair={activePair}
               cost={cost}
               configureOpen={configureOpen}
               onToggleConfigure={() => setConfigureOpen((v) => !v)}
+              onPickPair={(pair) => {
+                // Picking a pair (or "All documents") spins up a fresh
+                // session — scope is immutable per session for clean
+                // retrieval semantics.
+                void startNewSession(pair);
+              }}
               projectName={props.projectName}
             />
             <ChatThread

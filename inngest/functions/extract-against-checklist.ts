@@ -1,6 +1,6 @@
 import "server-only";
 import crypto from "node:crypto";
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, isNull, notInArray } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { memoize } from "@/lib/cache/content_hash";
 import { db } from "@/lib/db/client";
@@ -8,6 +8,7 @@ import {
   documents,
   specChecklistItems,
   submittalChecklistResponses,
+  submittalSpecAssignments,
 } from "@/lib/db/schema";
 import { withWorkspace } from "@/lib/db/rls";
 import {
@@ -16,6 +17,54 @@ import {
   type GuidedResponse,
 } from "@/lib/rag/extract/guided";
 import { getObjectBuffer } from "@/lib/r2/client";
+
+/**
+ * Flip the assignment row that drove this run to a target status.
+ * Scoped on (submittal × spec × csi) so we only update the assignment
+ * the user actually clicked Run Compliance on, not every assignment
+ * for this submittal. csi_section nullable makes the WHERE awkward —
+ * use IS NULL when the run was for the whole spec.
+ */
+type ComplianceStatus =
+  | "not_run"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed";
+
+async function setAssignmentStatus(args: {
+  workspaceId: string;
+  submittalDocumentId: string;
+  specDocumentId: string;
+  csiSection: string | null;
+  status: ComplianceStatus;
+  setLastRunAt?: boolean;
+}) {
+  await withWorkspace(args.workspaceId, async (tx) => {
+    const csiCond = args.csiSection
+      ? eq(submittalSpecAssignments.csiSection, args.csiSection)
+      : isNull(submittalSpecAssignments.csiSection);
+    const update: {
+      complianceRunStatus: ComplianceStatus;
+      lastRunAt?: Date;
+    } = { complianceRunStatus: args.status };
+    if (args.setLastRunAt) update.lastRunAt = new Date();
+    await tx
+      .update(submittalSpecAssignments)
+      .set(update)
+      .where(
+        and(
+          eq(submittalSpecAssignments.workspaceId, args.workspaceId),
+          eq(
+            submittalSpecAssignments.submittalDocumentId,
+            args.submittalDocumentId,
+          ),
+          eq(submittalSpecAssignments.specDocumentId, args.specDocumentId),
+          csiCond,
+        ),
+      );
+  });
+}
 
 /**
  * Stage 2d — guided submittal extraction. Phase B PR 3 of
@@ -110,10 +159,44 @@ export const extractSubmittalAgainstChecklist = inngest.createFunction(
     retries: 2,
     concurrency: { limit: 3 },
     triggers: [{ event: "submittal/extract-against-checklist-ready" }],
+    // Inngest fires onFailure after every retry is exhausted. Flip the
+    // assignment to 'failed' so the /compare UI surfaces a retry CTA
+    // instead of leaving it stuck in 'running' forever.
+    onFailure: async ({ event }) => {
+      const e = event.data.event.data as ExtractReadyEvent;
+      try {
+        await setAssignmentStatus({
+          workspaceId: e.workspaceId,
+          submittalDocumentId: e.submittalDocumentId,
+          specDocumentId: e.specDocumentId,
+          csiSection: e.csiSection ?? null,
+          status: "failed",
+          setLastRunAt: true,
+        });
+      } catch (err) {
+        // Don't mask the original failure with a status-update failure.
+        console.error("compliance_status_failed_update_failed", err);
+      }
+    },
   },
   async ({ event, step }) => {
     const { submittalDocumentId, specDocumentId, csiSection, workspaceId, projectId } =
       event.data as ExtractReadyEvent;
+
+    // Mark assignment as 'running' so /compare can render the proper
+    // in-progress panel. Idempotent: queued → running is fine, and
+    // running → running is a no-op write. If no assignment row matches
+    // the (submittal × spec × csi) triple — pre-PR-3 the runner could
+    // be triggered without an assignment — this is a no-op.
+    await step.run("mark-running", async () => {
+      await setAssignmentStatus({
+        workspaceId,
+        submittalDocumentId,
+        specDocumentId,
+        csiSection: csiSection ?? null,
+        status: "running",
+      });
+    });
 
     // 1. Load the submittal doc (need filename + r2 key + content hash for caching).
     const submittal = await step.run("load-submittal", async () => {
@@ -135,6 +218,15 @@ export const extractSubmittalAgainstChecklist = inngest.createFunction(
     });
 
     if (!submittal) {
+      // Roll back to 'failed' so the UI doesn't show a phantom run.
+      await setAssignmentStatus({
+        workspaceId,
+        submittalDocumentId,
+        specDocumentId,
+        csiSection: csiSection ?? null,
+        status: "failed",
+        setLastRunAt: true,
+      });
       return { submittalDocumentId, skipped: "submittal_not_found" };
     }
 
@@ -163,6 +255,17 @@ export const extractSubmittalAgainstChecklist = inngest.createFunction(
     });
 
     if (checklist.length === 0) {
+      // Roll the assignment back to 'not_run' so the UI shows the
+      // Run CTA again rather than a stuck spinner. Don't mark
+      // 'failed' — this case is "spec checklist still being parsed,"
+      // a transient race, not a real failure.
+      await setAssignmentStatus({
+        workspaceId,
+        submittalDocumentId,
+        specDocumentId,
+        csiSection: csiSection ?? null,
+        status: "not_run",
+      });
       return {
         submittalDocumentId,
         skipped: "checklist_not_ready",
@@ -247,6 +350,20 @@ export const extractSubmittalAgainstChecklist = inngest.createFunction(
               ),
             );
         }
+      });
+    });
+
+    // Persist landed cleanly — flip the assignment to 'ready'. The
+    // /compare polling sees this and renders the table on the next
+    // refresh tick.
+    await step.run("mark-ready", async () => {
+      await setAssignmentStatus({
+        workspaceId,
+        submittalDocumentId,
+        specDocumentId,
+        csiSection: csiSection ?? null,
+        status: "ready",
+        setLastRunAt: true,
       });
     });
 

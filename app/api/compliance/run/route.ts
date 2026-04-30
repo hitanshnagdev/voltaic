@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { inngest } from "@/inngest/client";
 import { db } from "@/lib/db/client";
+import { withWorkspace } from "@/lib/db/rls";
 import {
   documents,
   specChecklistItems,
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
   if (assignmentRows.length === 0) {
     return NextResponse.json({ error: "assignment_not_found" }, { status: 404 });
   }
+  const assignmentId = assignmentRows[0].id;
 
   // Resolve project for the submittal so the event payload matches the
   // shape extract-against-checklist expects.
@@ -123,6 +125,19 @@ export async function POST(req: Request) {
     );
   }
 
+  // Flip the assignment to 'queued' before firing the event. The
+  // extract function will move it to 'running' once it actually
+  // starts work and 'ready' / 'failed' on terminal state. The UI
+  // polls /compare and renders an in-progress panel while the
+  // status is queued or running — survives browser refresh because
+  // the source of truth lives in the DB, not in client state.
+  await withWorkspace(workspace.id, async (tx) => {
+    await tx
+      .update(submittalSpecAssignments)
+      .set({ complianceRunStatus: "queued" })
+      .where(eq(submittalSpecAssignments.id, assignmentId));
+  });
+
   await inngest.send({
     name: "submittal/extract-against-checklist-ready",
     data: {
@@ -134,5 +149,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, queued: true });
+  return NextResponse.json({ ok: true, queued: true, assignmentId });
 }

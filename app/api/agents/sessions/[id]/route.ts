@@ -39,6 +39,8 @@ export async function GET(
       agentId: session.agentId,
       projectId: session.projectId,
       title: session.title,
+      scopedSubmittalId: session.scopedSubmittalId,
+      scopedSpecId: session.scopedSpecId,
       createdAt: session.createdAt.toISOString(),
       lastMessageAt: session.lastMessageAt.toISOString(),
       messageCount: messages.length,

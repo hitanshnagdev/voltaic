@@ -185,10 +185,24 @@ export type CompareGroup = {
   evaluatedCount: number;
 };
 
+export type ComplianceRunStatus =
+  | "not_run"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed";
+
 export type CompareSpecAssignment = {
   specDocumentId: string;
   specFilename: string;
   csiSection: string | null;
+  /**
+   * Lifecycle of the explicit Run Compliance click on this pair.
+   * Drives the /compare empty-state UI: in-progress panel when
+   * 'queued'/'running', retry CTA when 'failed', plain Run CTA
+   * otherwise. Survives browser refresh (server-side state).
+   */
+  complianceRunStatus: ComplianceRunStatus;
 };
 
 export type CompareData = {
@@ -252,9 +266,10 @@ export async function buildCompareDataForSubmittal(args: {
 
   const assignments = (await db.execute(sql`
     SELECT
-      a.spec_document_id AS "specDocumentId",
-      a.csi_section      AS "csiSection",
-      d.filename         AS "specFilename"
+      a.spec_document_id        AS "specDocumentId",
+      a.csi_section             AS "csiSection",
+      d.filename                AS "specFilename",
+      a.compliance_run_status   AS "complianceRunStatus"
     FROM submittal_spec_assignments a
     JOIN documents d ON d.id = a.spec_document_id
     WHERE a.submittal_document_id = ${submittalId}::uuid
@@ -264,6 +279,7 @@ export async function buildCompareDataForSubmittal(args: {
     specDocumentId: string;
     csiSection: string | null;
     specFilename: string;
+    complianceRunStatus: ComplianceRunStatus;
   }>;
   if (assignments.length === 0) return { empty: "submittal_not_assigned" };
 
