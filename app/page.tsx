@@ -151,6 +151,18 @@ function MarqueeSet() {
         <span style={{ color: "#8C1515", fontWeight: 500 }}>Stanford</span> University
       </MarqueeItem>
       <MarqueeSep />
+      <MarqueeItem>
+        Fordham · <span style={{ color: "#900028", fontWeight: 500 }}>Gabelli School of Business</span>
+      </MarqueeItem>
+      <MarqueeSep />
+      <span className="whitespace-nowrap text-[22px] font-bold tracking-tight" style={{ color: "#F47E42" }}>
+        Procore
+      </span>
+      <MarqueeSep />
+      <span className="whitespace-nowrap text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
+        Datagrid AI
+      </span>
+      <MarqueeSep />
     </>
   );
 }
@@ -165,7 +177,7 @@ function PartnerMarquee() {
       <div className="mx-auto max-w-[1280px] px-6">
         <div className="mb-4 flex items-baseline">
           <span className="landing-mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-muted)]">
-            Advised by builders from
+            Advised and made by builders from
           </span>
         </div>
       </div>
