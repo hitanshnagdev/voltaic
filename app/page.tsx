@@ -151,14 +151,6 @@ function MarqueeSet() {
         <span style={{ color: "#8C1515", fontWeight: 500 }}>Stanford</span> University
       </MarqueeItem>
       <MarqueeSep />
-      <span className="whitespace-nowrap text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
-        MJ Harris Construction
-      </span>
-      <MarqueeSep />
-      <span className="whitespace-nowrap text-[22px] font-bold tracking-tight" style={{ color: "#F47E42" }}>
-        Procore
-      </span>
-      <MarqueeSep />
     </>
   );
 }
@@ -829,31 +821,16 @@ function Integrations() {
           </div>
           <div className="col-span-12 md:col-span-6 md:col-start-7">
             <p className="text-[16px] leading-[1.6] text-[var(--color-ink-soft)]" style={{ textWrap: "pretty" }}>
-              Voltaic is designed to be the compliance layer above your project stack — not another silo. Submittals
-              from Procore, drawings from Autodesk, schedule milestones from P6, and project email all in one place.
+              Voltaic is designed to be the compliance layer above your project stack — not another silo. Drawings
+              from Autodesk, schedule milestones from P6, and project email all in one place.
             </p>
           </div>
         </div>
 
         <div
-          className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] md:grid-cols-4"
+          className="grid grid-cols-1 gap-px overflow-hidden rounded-[8px] md:grid-cols-3"
           style={{ background: "var(--color-line)" }}
         >
-          <IntegrationCard
-            iconBg="#fff5ed"
-            iconStroke="#F47E42"
-            icon={
-              <>
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-              </>
-            }
-            name="Procore"
-            kind="SUBMITTALS · RFIs"
-            desc="Two-way sync. Voltaic ingests submittal log, posts back compliance status and RFI drafts."
-          />
           <IntegrationCard
             iconBg="#e8f0ff"
             iconStroke="#0696D7"
@@ -966,7 +943,7 @@ function Vision() {
             capColor="var(--color-sage)"
             title="Submittal review"
             blurb="Compare grids, agents, RFI drafting, event-driven email."
-            bullets={["Spec ↔ submittal grids", "Agent conversations", "Procore / ACC / P6 sync"]}
+            bullets={["Spec ↔ submittal grids", "Agent conversations", "ACC / P6 / email sync"]}
           />
           <RoadmapCol
             cap="Q3 '26"
