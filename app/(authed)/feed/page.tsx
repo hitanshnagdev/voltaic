@@ -3,15 +3,26 @@ import Link from "next/link";
 import { BlockerCard } from "@/components/today/BlockerCard";
 import { ContradictionCard } from "@/components/today/ContradictionCard";
 import { TrustFooter } from "@/components/today/TrustFooter";
-import { listOpenFindingsForProject } from "@/lib/db/findings";
+import { ArtifactCard } from "@/components/feed/ArtifactCard";
+import { DraftRfiButton } from "@/components/feed/DraftRfiButton";
+import {
+  listOpenFindingsForProject,
+  type FindingForToday,
+} from "@/lib/db/findings";
+import { listArtifactsForProject } from "@/lib/db/artifacts";
+import type { Artifact } from "@/lib/db/schema";
 import { ensureWorkspace } from "@/lib/db/workspace";
 
 /**
- * Feed — the home surface (Phase 0 IA). One timeline: today's open findings
- * (rule + contradiction cards), a persistent Ask bar on top, and a sticky
- * signal summary so a fresh session always has a pulse. Replaces Today;
- * artifact-draft cards join this stream in a later phase.
+ * Feed — the home surface. One reverse-chronological stream of cards:
+ * Findings (solid severity border) + Artifact drafts (dashed coral border).
+ * Ask bar on top; severity signal summary so a fresh session has a pulse.
  */
+
+type FeedItem =
+  | { kind: "finding"; at: number; finding: FindingForToday }
+  | { kind: "artifact"; at: number; artifact: Artifact };
+
 export default async function FeedPage() {
   const { orgId } = await auth();
   if (!orgId) return null;
@@ -25,16 +36,35 @@ export default async function FeedPage() {
     orgName: org.name,
   });
 
-  const findings = await listOpenFindingsForProject({
-    workspaceId: workspace.id,
-    projectId: project.id,
-  });
+  const [findings, artifactRows] = await Promise.all([
+    listOpenFindingsForProject({
+      workspaceId: workspace.id,
+      projectId: project.id,
+    }),
+    listArtifactsForProject({
+      workspaceId: workspace.id,
+      projectId: project.id,
+    }),
+  ]);
 
   const counts = {
     hot: findings.filter((f) => f.severity === "hot").length,
     warm: findings.filter((f) => f.severity === "warm").length,
     cool: findings.filter((f) => f.severity === "cool").length,
   };
+
+  const items: FeedItem[] = [
+    ...findings.map((f) => ({
+      kind: "finding" as const,
+      at: new Date(f.createdAt).getTime(),
+      finding: f,
+    })),
+    ...artifactRows.map((a) => ({
+      kind: "artifact" as const,
+      at: new Date(a.createdAt).getTime(),
+      artifact: a,
+    })),
+  ].sort((x, y) => y.at - x.at);
 
   return (
     <section className="scrollbar-thin flex-1 overflow-y-auto pb-24">
@@ -49,7 +79,6 @@ export default async function FeedPage() {
           </p>
         </div>
 
-        {/* Ask bar — opens the project chat */}
         <Link
           href="/agents"
           className="flex items-center gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-3 text-sm text-[var(--color-muted)] transition-colors hover:border-[var(--color-coral-tint-2)] hover:bg-[var(--color-coral-tint)] hover:text-[var(--color-coral-dark)]"
@@ -70,15 +99,15 @@ export default async function FeedPage() {
           </div>
         )}
 
-        {findings.length === 0 ? (
+        {items.length === 0 ? (
           <div className="paper p-8 text-center">
             <h2 className="text-base font-semibold text-[var(--color-ink)]">
-              No issues flagged yet
+              Nothing here yet
             </h2>
             <p className="mt-2 text-sm text-[var(--color-muted)]">
               Add sources in the <span className="font-medium">Sources</span> tab
-              — a Division 26 spec + a matching submittal, or a meeting transcript.
-              Voltaic runs the analysis and surfaces blockers here.
+              — a spec + a matching submittal, or a meeting transcript. Findings
+              and drafted documents surface here.
             </p>
             <div className="mt-6">
               <TrustFooter />
@@ -86,24 +115,23 @@ export default async function FeedPage() {
           </div>
         ) : (
           <>
-            <div>
-              <div className="mb-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
-                  What&apos;s blocking install
-                </h2>
-                <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
-                  Ranked by severity, then time-to-impact, then confidence.
-                </p>
-              </div>
-              <div className="space-y-2">
-                {findings.map((f) =>
-                  f.kind === "contradiction" ? (
-                    <ContradictionCard key={f.id} finding={f} />
-                  ) : (
-                    <BlockerCard key={f.id} finding={f} />
-                  ),
-                )}
-              </div>
+            <div className="space-y-3">
+              {items.map((item) =>
+                item.kind === "artifact" ? (
+                  <ArtifactCard key={`a-${item.artifact.id}`} artifact={item.artifact} />
+                ) : (
+                  <div key={`f-${item.finding.id}`}>
+                    {item.finding.kind === "contradiction" ? (
+                      <ContradictionCard finding={item.finding} />
+                    ) : (
+                      <BlockerCard finding={item.finding} />
+                    )}
+                    <div className="mt-1 flex justify-end">
+                      <DraftRfiButton findingId={item.finding.id} />
+                    </div>
+                  </div>
+                ),
+              )}
             </div>
             <TrustFooter />
           </>

@@ -968,6 +968,55 @@ export const transcriptUtterances = pgTable(
   ],
 );
 
+// ---------- artifacts (drafted deliverables) ----------
+
+// An Artifact is a user-facing deliverable assembled from findings + source
+// atoms — the peer of a Finding. Mirrors the findings shape (structured
+// content with inline citations, status lifecycle) so it's a natural
+// extension. content is structured JSON (never freeform) so future agentic
+// fill + the template editor have a target.
+export const artifacts = pgTable(
+  "artifacts",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // 'rfi' | 'compliance_report' | 'change_order' | 'recap_email' | 'filled_template'
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    // 'draft' | 'reviewed' | 'sent' | 'exported'
+    status: text("status").notNull().default("draft"),
+    // structured content: typed fields/sections + inline citations
+    content: jsonb("content").notNull().default(sql`'{}'::jsonb`),
+    findingIds: uuidArray("finding_ids")
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    sourceDocumentIds: uuidArray("source_document_ids")
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    templateDocumentId: uuid("template_document_id"),
+    // { kind: 'manual' | 'workflow', fromFindingId?, ... }
+    trigger: jsonb("trigger").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("artifacts_project_idx").on(t.projectId),
+    index("artifacts_workspace_idx").on(t.workspaceId),
+    index("artifacts_type_idx").on(t.type),
+  ],
+);
+
 // ---------- inferred types ----------
 
 export type Workspace = typeof workspaces.$inferSelect;
@@ -993,3 +1042,4 @@ export type HashCacheEntry = typeof hashCache.$inferSelect;
 export type OauthIntegration = typeof oauthIntegrations.$inferSelect;
 export type Transcript = typeof transcripts.$inferSelect;
 export type TranscriptUtterance = typeof transcriptUtterances.$inferSelect;
+export type Artifact = typeof artifacts.$inferSelect;
