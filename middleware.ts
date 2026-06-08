@@ -5,6 +5,9 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/inngest(.*)",
+  // OAuth callback: Google redirects here cross-site; it authorizes via the
+  // httpOnly state+workspace cookie set by /connect, not the Clerk session.
+  "/api/integrations/google/callback(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
