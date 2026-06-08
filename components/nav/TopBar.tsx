@@ -1,4 +1,5 @@
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { AgentLauncher } from "@/components/nav/AgentLauncher";
 
 /**
  * Top bar. Renders the project name as a breadcrumb after the org
@@ -44,8 +45,8 @@ export function TopBar(props: {
       <div className="flex items-center gap-2 text-sm">
         <OrganizationSwitcher
           hidePersonal
-          afterCreateOrganizationUrl="/today"
-          afterSelectOrganizationUrl="/today"
+          afterCreateOrganizationUrl="/feed"
+          afterSelectOrganizationUrl="/feed"
           appearance={{
             variables: { colorPrimary: "#cc785c" },
             elements: {
@@ -90,6 +91,7 @@ export function TopBar(props: {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        <AgentLauncher />
         <UserButton
           appearance={{
             variables: { colorPrimary: "#cc785c" },
