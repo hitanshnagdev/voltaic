@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./client";
 import { artifacts, documents, equipment, findings, type Artifact } from "./schema";
+import { listOpenFindingsForProject } from "./findings";
 
 /**
  * Artifact service — the single seam through which deliverables are created,
@@ -119,6 +120,77 @@ export async function createRfiFromFinding(params: {
       findingIds: [f.id],
       sourceDocumentIds: docIds,
       trigger: { kind: "manual", fromFindingId: f.id },
+    })
+    .returning();
+  return row;
+}
+
+export type ComplianceRow = {
+  equipment: string;
+  title: string;
+  verdict: string;
+  severity: string;
+  summary: string;
+  references: RfiReference[];
+};
+
+export type ComplianceReportContent = {
+  counts: { hot: number; warm: number; cool: number; total: number };
+  rows: ComplianceRow[];
+};
+
+// Compliance report — snapshots the project's open findings into a
+// deliverable. Deterministic (reuses the hydrated findings read).
+export async function createComplianceReportFromProject(params: {
+  workspaceId: string;
+  projectId: string;
+}): Promise<Artifact | null> {
+  const { workspaceId, projectId } = params;
+  const items = await listOpenFindingsForProject({ workspaceId, projectId });
+
+  const rows: ComplianceRow[] = items.map((f) => ({
+    equipment: f.equipmentTags.join(", ") || "—",
+    title: f.title,
+    verdict: f.verdict,
+    severity: f.severity,
+    summary: f.summary,
+    references: f.evidence.map((e) => ({
+      label: refLabel(e.sourceKind),
+      documentName: e.documentName,
+      pageNum: e.pageNum,
+      snippet: e.snippet,
+      sourceKind: e.sourceKind,
+    })),
+  }));
+
+  const counts = {
+    hot: items.filter((f) => f.severity === "hot").length,
+    warm: items.filter((f) => f.severity === "warm").length,
+    cool: items.filter((f) => f.severity === "cool").length,
+    total: items.length,
+  };
+  const content: ComplianceReportContent = { counts, rows };
+
+  const docIds = Array.from(
+    new Set(
+      items.flatMap((f) =>
+        f.evidence.map((e) => e.documentId).filter((x): x is string => !!x),
+      ),
+    ),
+  );
+
+  const [row] = await db
+    .insert(artifacts)
+    .values({
+      workspaceId,
+      projectId,
+      type: "compliance_report",
+      title: `Compliance Report · ${items.length} finding${items.length === 1 ? "" : "s"}`,
+      status: "draft",
+      content: content as unknown as Record<string, unknown>,
+      findingIds: items.map((f) => f.id),
+      sourceDocumentIds: docIds,
+      trigger: { kind: "manual" },
     })
     .returning();
   return row;

@@ -5,6 +5,7 @@ import { ContradictionCard } from "@/components/today/ContradictionCard";
 import { TrustFooter } from "@/components/today/TrustFooter";
 import { ArtifactCard } from "@/components/feed/ArtifactCard";
 import { DraftRfiButton } from "@/components/feed/DraftRfiButton";
+import { DraftComplianceButton } from "@/components/feed/DraftComplianceButton";
 import {
   listOpenFindingsForProject,
   type FindingForToday,
@@ -90,12 +91,15 @@ export default async function FeedPage() {
         </Link>
 
         {findings.length > 0 && (
-          <div className="flex items-center gap-2 text-[11px] text-[var(--color-muted-soft)]">
-            <span>{findings.length} open</span>
-            <span>·</span>
-            <span className="tti hot">{counts.hot} HOT</span>
-            <span className="tti warm">{counts.warm} WARM</span>
-            <span className="tti cool">{counts.cool} COOL</span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[11px] text-[var(--color-muted-soft)]">
+              <span>{findings.length} open</span>
+              <span>·</span>
+              <span className="tti hot">{counts.hot} HOT</span>
+              <span className="tti warm">{counts.warm} WARM</span>
+              <span className="tti cool">{counts.cool} COOL</span>
+            </div>
+            <DraftComplianceButton />
           </div>
         )}
 
