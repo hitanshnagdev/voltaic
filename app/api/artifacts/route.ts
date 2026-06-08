@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { projects } from "@/lib/db/schema";
 import { getWorkspaceByClerkOrg } from "@/lib/db/workspace";
 import {
+  createComplianceReportFromProject,
   createRfiFromFinding,
   listArtifactsForProject,
 } from "@/lib/db/artifacts";
@@ -49,17 +50,24 @@ export async function POST(req: Request) {
   const type = typeof body?.type === "string" ? body.type : "";
   const findingId = typeof body?.findingId === "string" ? body.findingId : "";
 
-  if (type !== "rfi" || !findingId) {
+  let artifact = null;
+  if (type === "rfi" && findingId) {
+    artifact = await createRfiFromFinding({
+      workspaceId: workspace.id,
+      projectId: project.id,
+      findingId,
+    });
+  } else if (type === "compliance_report") {
+    artifact = await createComplianceReportFromProject({
+      workspaceId: workspace.id,
+      projectId: project.id,
+    });
+  } else {
     return NextResponse.json({ error: "unsupported_request" }, { status: 400 });
   }
 
-  const artifact = await createRfiFromFinding({
-    workspaceId: workspace.id,
-    projectId: project.id,
-    findingId,
-  });
   if (!artifact) {
-    return NextResponse.json({ error: "finding_not_found" }, { status: 404 });
+    return NextResponse.json({ error: "not_created" }, { status: 404 });
   }
   return NextResponse.json({ artifact });
 }
