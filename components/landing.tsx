@@ -21,10 +21,12 @@ export default function Landing() {
       <div className="relative z-10">
         <Nav />
         <Hero />
+        <Proof />
         <Connect />
         <Listen />
         <Draft />
         <Verify />
+        <WhyUs />
         <Ask />
         <ClosingCTA />
         <Footer />
@@ -101,7 +103,7 @@ function Nav() {
             Sign in
           </Link>
           <Link href="/sign-up" className="rounded-full bg-[#e58a63] px-4 py-2 text-[13px] font-medium text-[#1a130f] transition-all hover:bg-[#eb9a76] hover:shadow-[0_0_24px_rgba(229,138,99,0.5)]">
-            Get early access
+            Become a partner
           </Link>
         </nav>
       </div>
@@ -164,12 +166,21 @@ function Hero() {
 
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.65, ease: EASE }} className="relative z-10 mt-9 flex items-center gap-3">
         <Link href="/sign-up" className="rounded-full bg-[#e58a63] px-6 py-3 text-[15px] font-medium text-[#1a130f] transition-all hover:bg-[#eb9a76] hover:shadow-[0_0_36px_rgba(229,138,99,0.6)]">
-          Get early access
+          Become a design partner
         </Link>
         <a href="#connect" className="rounded-full border border-[var(--edge-strong)] px-6 py-3 text-[15px] font-medium text-[var(--cream-text)] transition-colors hover:bg-white/[0.04]">
           Watch it work
         </a>
       </motion.div>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.7, delay: 0.85, ease: EASE }}
+        className="relative z-10 mt-4 font-mono text-[12px] text-[var(--faint-text)]"
+      >
+        Onboarding our first 5 design-partner contractors — no Procore required.
+      </motion.p>
 
       <div className="scroll-cue absolute bottom-10 left-1/2 -translate-x-1/2 text-[var(--faint-text)]">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-5 w-5">
@@ -518,7 +529,7 @@ function Ask() {
           </div>
         </div>
       </motion.div>
-      <p className="mt-3 text-center font-mono text-[12px] text-[var(--faint-text)]">A live look at Voltaic answering an electrical-rating compliance question.</p>
+      <p className="mt-3 text-center font-mono text-[12px] text-[var(--faint-text)]">Live today — drop in a spec + submittal and get a cited compliance finding in ~60 seconds.</p>
     </Scene>
   );
 }
@@ -534,6 +545,62 @@ function Cite({ children }: { children: React.ReactNode }) {
   );
 }
 
+/* ── Proof: cited problem stats ──────────────────────────── */
+function Proof() {
+  const stats = [
+    { n: "~10", a: "RFIs per $1M", b: "of construction value" },
+    { n: "~10 days", a: "to answer one RFI", b: "average response time" },
+    { n: "$1T+", a: "lost every year", b: "to coordination failures" },
+  ];
+  return (
+    <section className="relative mx-auto max-w-5xl px-6 pb-4 pt-2">
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.4 }}
+        transition={{ duration: 0.7, ease: EASE }}
+        className="glass grid grid-cols-1 gap-6 rounded-2xl px-8 py-7 sm:grid-cols-3"
+      >
+        {stats.map((s) => (
+          <div key={s.a} className="text-center">
+            <div className="text-[34px] font-medium tracking-tight text-[#e58a63] md:text-[40px]">{s.n}</div>
+            <div className="mt-1 text-[14px] font-medium text-[var(--cream-text)]">{s.a}</div>
+            <div className="text-[12px] text-[var(--faint-text)]">{s.b}</div>
+          </div>
+        ))}
+      </motion.div>
+      <p className="mt-3 text-center font-mono text-[11px] text-[var(--faint-text)]">Industry figures — the gap Voltaic closes.</p>
+    </section>
+  );
+}
+
+/* ── Why us: the wedge + Procore preempt ─────────────────── */
+function WhyUs() {
+  return (
+    <section className="relative mx-auto max-w-4xl px-6 py-20 text-center">
+      <motion.h2
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.5 }}
+        transition={{ duration: 0.7, ease: EASE }}
+        className="text-[26px] font-medium leading-snug tracking-tight text-[var(--cream-text)] md:text-[34px]"
+      >
+        The only construction AI that catches when a{" "}
+        <span className="text-[#e58a63]">meeting contradicts the contract.</span>
+      </motion.h2>
+      <motion.p
+        initial={{ opacity: 0, y: 16 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.7, delay: 0.15, ease: EASE }}
+        className="mx-auto mt-5 max-w-md text-[14px] leading-relaxed text-[var(--muted-text)]"
+      >
+        Procore lives inside Procore. Voltaic lives in the meeting — where the decisions that cause the problems actually get made.
+      </motion.p>
+    </section>
+  );
+}
+
 /* ── Closing CTA ─────────────────────────────────────────── */
 function ClosingCTA() {
   return (
@@ -546,7 +613,7 @@ function ClosingCTA() {
       </motion.h2>
       <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7, delay: 0.2, ease: EASE }} className="relative z-10 mt-10">
         <Link href="/sign-up" className="glow-pulse inline-block rounded-full bg-[#e58a63] px-8 py-4 text-[16px] font-medium text-[#1a130f] transition-colors hover:bg-[#eb9a76]">
-          Get early access
+          Become a design partner
         </Link>
       </motion.div>
     </section>
@@ -559,12 +626,15 @@ function Footer() {
     <footer className="relative border-t border-[var(--edge)]">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 md:flex-row md:items-center md:justify-between">
         <Wordmark />
-        <p className="flex items-center gap-2 text-[12px] text-[var(--muted-text)]">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#84b596" strokeWidth={2} className="h-3.5 w-3.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          AI-flagged · Engineer verifies before action.
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="flex items-center gap-2 text-[12px] text-[var(--muted-text)]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#84b596" strokeWidth={2} className="h-3.5 w-3.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            AI-flagged · Engineer verifies before action.
+          </p>
+          <p className="text-[11px] text-[var(--faint-text)]">Consent-aware recording · Your documents and data stay yours.</p>
+        </div>
         <span className="font-mono text-[11px] text-[var(--faint-text)]">© 2026 Voltaic</span>
       </div>
     </footer>
