@@ -10,6 +10,6 @@ export const metadata = {
 
 export default async function Home() {
   const { userId } = await auth();
-  if (userId) redirect("/today");
+  if (userId) redirect("/feed");
   return <Landing />;
 }

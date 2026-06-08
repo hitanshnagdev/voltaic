@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const back = new URL("/meetings", req.url);
+  const back = new URL("/sources", req.url);
 
   if (url.searchParams.get("error")) {
     back.searchParams.set("google", "denied");
