@@ -39,6 +39,7 @@ export type FindingForToday = {
   category: string;
   equipmentTags: string[];
   evidence: EvidenceItem[];
+  createdAt: Date;
 };
 
 /**
@@ -165,6 +166,7 @@ export async function listOpenFindingsForProject(params: {
         role: e.role ?? "supporting",
         documentName: e.documentId ? filenameById.get(e.documentId) ?? null : null,
       })),
+      createdAt: r.createdAt,
     };
   });
 
