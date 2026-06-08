@@ -835,6 +835,139 @@ export const hashCache = pgTable(
   ],
 );
 
+// ---------- meeting transcript layer ----------
+
+// Per-user OAuth connections (Google Calendar/Meet now; Teams/Zoom later).
+// Tokens let us sync the calendar and fetch transcripts on the user's
+// behalf. Refresh tokens persist; access tokens are refreshed lazily.
+export const oauthIntegrations = pgTable(
+  "oauth_integrations",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // 'google' (calendar + meet). Future: 'microsoft', 'zoom'.
+    provider: text("provider").notNull(),
+    // Stable provider account id (Google `sub`).
+    externalUserId: text("external_user_id").notNull(),
+    email: text("email"),
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scopes: textArray("scopes")
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    rawProfile: jsonb("raw_profile").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("oauth_integrations_ws_provider_user_idx").on(
+      t.workspaceId,
+      t.provider,
+      t.externalUserId,
+    ),
+    index("oauth_integrations_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+// A meeting transcript (manual upload now; Google Meet / Zoom later).
+export const transcripts = pgTable(
+  "transcripts",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // 'manual_upload' | 'google_meet' | 'zoom' | 'teams'
+    sourceType: text("source_type").notNull().default("manual_upload"),
+    // Provider conference / event id when synced; null for manual uploads.
+    sourceId: text("source_id"),
+    title: text("title"),
+    // Raw transcript text stored in R2.
+    r2Key: text("r2_key").notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    durationSeconds: integer("duration_seconds"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }),
+    // 'pending' | 'processing' | 'ready' | 'failed'
+    status: text("status").notNull().default("pending"),
+    // { calendarEventId?, attendees?: [{email,name}], organizer?, ... }
+    meetingMetadata: jsonb("meeting_metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("transcripts_project_idx").on(t.projectId),
+    index("transcripts_workspace_idx").on(t.workspaceId),
+    index("transcripts_content_sha_idx").on(t.contentSha256),
+  ],
+);
+
+// Atom of transcript retrieval: one utterance (speaker turn / cue), with a
+// generated tsvector + a 1024-dim embedding so it joins the SAME hybrid
+// retrieval + contradiction engine as spec_paragraphs / submittal_fields
+// (a new source_kind = 'transcript_utterance').
+export const transcriptUtterances = pgTable(
+  "transcript_utterances",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    transcriptId: uuid("transcript_id")
+      .notNull()
+      .references(() => transcripts.id, { onDelete: "cascade" }),
+    // Ordinal within the transcript (0-based) for stable ordering +
+    // idempotent re-ingest.
+    idx: integer("idx").notNull(),
+    speaker: text("speaker"),
+    startMs: integer("start_ms"),
+    endMs: integer("end_ms"),
+    content: text("content").notNull(),
+    contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+      sql`to_tsvector('english', content)`,
+    ),
+    embedding: vector("embedding", { dimensions: 1024 }),
+    // Normalized equipment tags mentioned (filled by claim extraction).
+    equipmentTags: textArray("equipment_tags")
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    contentSha256: text("content_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("transcript_utterances_transcript_idx_idx").on(
+      t.transcriptId,
+      t.idx,
+    ),
+    index("transcript_utterances_workspace_idx").on(t.workspaceId),
+    index("transcript_utterances_content_tsv_idx").using("gin", t.contentTsv),
+    index("transcript_utterances_embedding_idx").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops"),
+    ),
+  ],
+);
+
 // ---------- inferred types ----------
 
 export type Workspace = typeof workspaces.$inferSelect;
@@ -857,3 +990,6 @@ export type ChatSession = typeof chatSessions.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type HashCacheEntry = typeof hashCache.$inferSelect;
+export type OauthIntegration = typeof oauthIntegrations.$inferSelect;
+export type Transcript = typeof transcripts.$inferSelect;
+export type TranscriptUtterance = typeof transcriptUtterances.$inferSelect;

@@ -6,6 +6,8 @@ import { analyzeSccr } from "@/inngest/functions/analyze-sccr";
 import { embedSpecParagraphs } from "@/inngest/functions/embed-spec-paragraphs";
 import { extractSubmittalAgainstChecklist } from "@/inngest/functions/extract-against-checklist";
 import { ingestDocument } from "@/inngest/functions/ingest-document";
+import { ingestTranscript } from "@/inngest/functions/ingest-transcript";
+import { detectTranscriptContradictions } from "@/inngest/functions/detect-transcript-contradictions";
 import { parseSpecChecklist } from "@/inngest/functions/parse-spec-checklist";
 import { parseSpecDocument } from "@/inngest/functions/parse-spec";
 import { parseSubmittalDocument } from "@/inngest/functions/parse-submittal";
@@ -18,6 +20,8 @@ export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
     ingestDocument,
+    ingestTranscript,
+    detectTranscriptContradictions,
     parseSpecDocument,
     parseSpecChecklist,
     parseSubmittalDocument,
