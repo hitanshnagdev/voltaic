@@ -1017,6 +1017,21 @@ export const artifacts = pgTable(
   ],
 );
 
+// ---------- workspace settings (standing workflow toggles) ----------
+
+// One row per workspace holding the Standing-Workflow toggles (plain-English
+// automations checked at the end of Inngest functions). jsonb so toggles are
+// additive without a migration each time.
+export const workspaceSettings = pgTable("workspace_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  settings: jsonb("settings").notNull().default(sql`'{}'::jsonb`),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ---------- inferred types ----------
 
 export type Workspace = typeof workspaces.$inferSelect;
@@ -1043,3 +1058,4 @@ export type OauthIntegration = typeof oauthIntegrations.$inferSelect;
 export type Transcript = typeof transcripts.$inferSelect;
 export type TranscriptUtterance = typeof transcriptUtterances.$inferSelect;
 export type Artifact = typeof artifacts.$inferSelect;
+export type WorkspaceSettingsRow = typeof workspaceSettings.$inferSelect;

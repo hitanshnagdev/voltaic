@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { db } from "@/lib/db/client";
 import {
@@ -17,6 +17,8 @@ import {
   CLAIM_SYSTEM,
   type ClaimExtraction,
 } from "@/lib/rag/transcript/claims";
+import { getWorkspaceSettings } from "@/lib/db/settings";
+import { createRfiFromFinding } from "@/lib/db/artifacts";
 
 /**
  * Meeting-layer Stage 2 — cross-modal contradiction detection.
@@ -278,10 +280,54 @@ export const detectTranscriptContradictions = inngest.createFunction(
       return { contradictions: rows.length };
     });
 
+    // Standing workflow: auto-draft an RFI for each fresh contradiction.
+    const settings = await step.run("load-settings", () =>
+      getWorkspaceSettings(workspaceId),
+    );
+    let autoDrafted = 0;
+    if (settings.autoRfiOnContradiction && result.contradictions > 0) {
+      autoDrafted = await step.run("auto-draft-rfis", async () => {
+        const cf = await db
+          .select({ id: findings.id })
+          .from(findings)
+          .where(
+            and(
+              eq(findings.projectId, projectId),
+              eq(findings.kind, "contradiction"),
+              sql`reasoning_trace ->> 'source_transcript_id' = ${transcriptId}`,
+            ),
+          );
+        // Idempotent: drop prior workflow-drafted RFIs for this transcript
+        // before re-creating, so re-ingest doesn't pile up duplicates.
+        await withWorkspace(workspaceId, async (tx) => {
+          await tx.execute(sql`
+            DELETE FROM artifacts
+            WHERE project_id = ${projectId}::uuid
+              AND type = 'rfi'
+              AND trigger ->> 'sourceTranscriptId' = ${transcriptId}
+          `);
+        });
+        for (const f of cf) {
+          await createRfiFromFinding({
+            workspaceId,
+            projectId,
+            findingId: f.id,
+            trigger: {
+              kind: "workflow",
+              sourceTranscriptId: transcriptId,
+              fromFindingId: f.id,
+            },
+          });
+        }
+        return cf.length;
+      });
+    }
+
     return {
       transcriptId,
       claims: extraction.claims.length,
       contradictions: result.contradictions,
+      autoDraftedRfis: autoDrafted,
     };
   },
 );
