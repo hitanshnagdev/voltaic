@@ -55,6 +55,8 @@ export async function createRfiFromFinding(params: {
   workspaceId: string;
   projectId: string;
   findingId: string;
+  /** Override the trigger record (e.g. workflow auto-draft). Defaults to manual. */
+  trigger?: Record<string, unknown>;
 }): Promise<Artifact | null> {
   const { workspaceId, projectId, findingId } = params;
 
@@ -119,7 +121,7 @@ export async function createRfiFromFinding(params: {
       content: content as unknown as Record<string, unknown>,
       findingIds: [f.id],
       sourceDocumentIds: docIds,
-      trigger: { kind: "manual", fromFindingId: f.id },
+      trigger: params.trigger ?? { kind: "manual", fromFindingId: f.id },
     })
     .returning();
   return row;

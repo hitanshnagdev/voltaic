@@ -7,6 +7,7 @@ import { DocsClient } from "@/components/docs/DocsClient";
 import { MeetingComposer } from "@/components/meetings/MeetingComposer";
 import { UpcomingMeetings } from "@/components/meetings/UpcomingMeetings";
 import { getGoogleIntegration } from "@/lib/integrations/google-store";
+import { WorkflowToggles } from "@/components/sources/WorkflowToggles";
 
 /**
  * Sources — pure intake (Phase 0 IA). Two lanes: Meetings (Google Calendar
@@ -61,6 +62,9 @@ export default async function SourcesPage({
             in; findings surface in the Feed.
           </p>
         </div>
+
+        {/* ── Standing workflows ── */}
+        <WorkflowToggles />
 
         {/* ── Lane: Meetings ── */}
         <div className="space-y-4">
