@@ -212,9 +212,34 @@ CLAUDE.md gets updated in the compare-page UI PR.
 
 ---
 
+## 2026-06-11 — Decisions update
+
+### U17 — U15 freeze closed; product-evolution record for May–June
+
+**Closes U15. Supersedes the "Active freezes" summary in CLAUDE.md.**
+
+**Freeze status.** U15's unfreeze conditions 1–3 were met during May: `/compare` is deployed to prod (voltaic-ten.vercel.app), reads `extraction_responses` / `submittal_fields` / `spec_checklist_items` directly (no mocks, PRs #36–#52), and renders extracted attributes against the spec-side checklist with per-row verdicts. **Condition 4 — the manual walk-one-row-back-to-source-bytes verification — was never recorded as performed.** Rather than declare it retroactively, that obligation transfers into the eval-harness milestone: authoring the first ground-truth findings *is* the walk-back, performed systematically instead of once. The freeze is formally closed as of this entry; the discipline it encoded survives as the trigger rule in U19.
+
+**What shipped beyond the April spec (the record CLAUDE.md doesn't have).** Between #46 and #71 the product grew: the Agents surface (multi-agent chat, streaming, inline citations, pair-scoped retrieval), the Phase 0 IA reskin (Feed / Sources / Outputs replacing Today/Docs as nav), artifacts (RFI-from-finding, compliance report), meeting-transcript ingestion with AIC-only cross-modal contradiction detection, Google Calendar connect, standing-workflow toggles with auto-draft RFI on contradiction, and two landing-page generations ending in the "meeting-AI" framing (#62–#71). CLAUDE.md's UI and scope sections describe the April product; where they conflict with this entry, this entry wins.
+
+### U18 — Positioning: compliance-first, meeting-AI demoted to feature
+
+**Decision (2026-06-11, after a verified market-research pass).** The headline is the deterministic compliance wedge — *"catches the non-compliant breaker before it ships"* — not meeting-AI. Meeting/transcript contradiction detection stays in the product as a closing differentiator beat, not the lead.
+
+**Why.** Research findings (adversarially verified, June 2026): Trunk Tools' TrunkSubmittal already does LLM-based spec-vs-submittal review GC-side ($70M raised); Document Crunch sells document-risk AI to specialty subs and is being acquired by Trimble; Procore made doc-chat and RFI drafting platform-native (Oct 2025); Cogram owns AEC meeting minutes and does Procore-integrated submittal completeness checks. The unoccupied intersection is **deterministic, equipment-level value comparison (AIC/SCCR/NEMA) × electrical-sub-as-buyer × evidence-bound verdicts**. Meeting capture as a headline puts us in Cogram's category with a manual-upload product. Estimated window before platforms commoditize basic compliance checking: 12–18 months.
+
+### U19 — Demoable-first build plan; outreach paused; trigger rule replaces the freeze
+
+**Sequencing decision (founder, 2026-06-11).** Design-partner outreach is paused until the product is demo-ready. Build order: (1) governance sync (this entry), (2) landing reposition per U18 + dead-link fixes, (3) guided first-run onboarding, (4) multi-project workspaces (P4, finally), (5) RLS enforcement (restricted role + policies), (6) eval harness with starter ground truth (informational until N ≥ 30 per U8).
+
+**The trigger rule (successor to U15's freeze).** No strategic-bet item starts without its trigger firing: one-line/riser topology waits for a partner asking a topology-shaped "why didn't you catch X?"; meeting-capture automation waits for a buyer articulating it; company-level sale motion waits for 2+ live projects at one partner; new equipment types and rules follow what pilot partners actually upload. U16 (~500 LOC PR cap) remains active.
+
+---
+
 ## Change log
 
 - **2026-04-24** — Initial decisions locked. Authored during kickoff session.
 - **2026-04-25** — Updates U1–U11 added: Textract deferred, rule engine made evidence-source-agnostic, `/today` scope cut, confidence/severity moved to shared modules, spec_drift contradiction split, embedding-preservation encoded, first-finding-on-real-PDF prioritized, precision gate recalibrated, rule #2 discipline gate locked, equipment contract deferred, file made append-only.
 - **2026-04-26** — Updates U12–U14 added: spec-checklist schema committed (Phase A hardcoded panelboard expectation set shipped, Phase B parser deferred), citations API wired as passive evidence (per-field hallucination guard is the next sub-step), compare page replaces chat-based Compare per user mocks.
 - **2026-04-26 (later)** — Updates U15–U16 added: freeze on new under-the-hood work until /compare renders real data (defense against the build → realize overbuilt → correct → overbuild loop the day exhibited), and a soft ~500 LOC PR-size cap as a forcing function for mid-work reality checks.
+- **2026-06-11** — Updates U17–U19 added: U15 freeze closed with the manual-verification obligation folded into the eval-harness milestone, May–June product evolution recorded (Agents, Feed/Sources/Outputs IA, artifacts, transcripts, standing workflows), positioning locked to compliance-first per market research, demoable-first build plan adopted with the trigger rule replacing the blanket freeze.
