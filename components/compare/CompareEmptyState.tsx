@@ -49,10 +49,10 @@ export function CompareEmptyState({
       )}
       <div className="mt-6">
         <Link
-          href="/today"
+          href="/feed"
           className="inline-block rounded border border-[var(--color-line)] px-4 py-1.5 text-[12px] font-medium text-[var(--color-ink-soft)] hover:bg-[var(--color-paper)]"
         >
-          ← Back to Today
+          ← Back to Feed
         </Link>
       </div>
     </div>

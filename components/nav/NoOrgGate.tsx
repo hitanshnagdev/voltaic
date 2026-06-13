@@ -13,7 +13,7 @@ export function NoOrgGate() {
         </p>
         <div className="mt-6 flex justify-center">
           <CreateOrganization
-            afterCreateOrganizationUrl="/today"
+            afterCreateOrganizationUrl="/feed"
             appearance={{
               variables: { colorPrimary: "#cc785c" },
             }}

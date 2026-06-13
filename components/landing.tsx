@@ -5,9 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, AnimatePresence } from "motion/react";
 
 /* ════════════════════════════════════════════════════════════
-   Voltaic — cinematic landing (meeting-AI story)
+   Voltaic — cinematic landing (compliance-first story, per U18)
    Warm-dark, scroll-driven. Story beats:
-   Connect (in → Voltaic → out) → Listen → Draft → Verify → Ask.
+   Connect (docs in → Voltaic → verdicts out) → Ingest → Check → Ask.
+   Deterministic compliance is the headline; the meeting-contradiction
+   catch is the closing wow-beat, never the lead.
    Rendered by app/page.tsx (server wrapper handles metadata + auth).
    ════════════════════════════════════════════════════════════ */
 
@@ -96,7 +98,7 @@ function Nav() {
           <a href="#connect" className="hidden rounded-full px-3.5 py-2 text-[13px] text-[var(--muted-text)] transition-colors hover:text-[var(--cream-text)] sm:block">
             How it works
           </a>
-          <Link href="/today" className="rounded-full px-3.5 py-2 text-[13px] text-[var(--muted-text)] transition-colors hover:text-[var(--cream-text)]">
+          <Link href="/feed" className="rounded-full px-3.5 py-2 text-[13px] text-[var(--muted-text)] transition-colors hover:text-[var(--cream-text)]">
             Sign in
           </Link>
           <Link href="/sign-up" className="rounded-full bg-[#e58a63] px-4 py-2 text-[13px] font-medium text-[#1a130f] transition-all hover:bg-[#eb9a76] hover:shadow-[0_0_24px_rgba(229,138,99,0.5)]">
@@ -123,7 +125,7 @@ function Wordmark() {
 
 /* ── Hero ────────────────────────────────────────────────── */
 function Hero() {
-  const lines = ["Your calls now", "do the paperwork."];
+  const lines = ["Catch the wrong breaker", "before it ships."];
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 text-center">
       <div className="aurora" style={{ width: 540, height: 540, background: "#e58a63", opacity: 0.22, top: "-12%", left: "8%" }} />
@@ -137,7 +139,7 @@ function Hero() {
         className="relative z-10 mb-7 inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-white/[0.03] px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--muted-text)]"
       >
         <span className="h-1.5 w-1.5 rounded-full bg-[#e58a63] glow-pulse" />
-        Working memory for construction
+        Submittal compliance for electrical contractors
       </motion.span>
 
       <h1 className="relative z-10 max-w-4xl text-[44px] font-medium leading-[1.02] tracking-tight text-[var(--cream-text)] md:text-[76px]">
@@ -158,7 +160,7 @@ function Hero() {
         transition={{ duration: 0.7, delay: 0.5, ease: EASE }}
         className="relative z-10 mt-7 max-w-xl text-[16px] leading-relaxed text-[var(--muted-text)] md:text-[18px]"
       >
-        Voltaic joins your construction meetings, drafts the work, and catches anything said that contradicts the contract.
+        Voltaic reads your specs and submittals, runs deterministic compliance checks — AIC, SCCR, NEMA — and flags every mismatch with the spec paragraph and cut-sheet page that prove it.
       </motion.p>
 
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.65, ease: EASE }} className="relative z-10 mt-9 flex items-center gap-3">
@@ -208,19 +210,19 @@ function Scene({ id, n, kicker, title, wide, children }: { id: string; n: string
 
 /* ── 01 · Connect (horizontal: inputs → Voltaic → outputs) ── */
 function Connect() {
-  // Input brand badges (color + glyph kind) — kept as our own simple geometric
-  // marks for nominative reference, not reproductions of vendor artwork.
+  // Inputs are the project's documents — specs and submittals lead;
+  // meetings are the fourth source, not the headline.
   const inputs = [
-    { name: "Teams",   y: 70,  color: "#5059C9", glyph: "T" },
-    { name: "Outlook", y: 170, color: "#0078D4", glyph: "O" },
-    { name: "Meet",    y: 270, color: "#00897B", glyph: "cam" },
-    { name: "Zoom",    y: 370, color: "#2D8CFF", glyph: "cam" },
+    { name: "Specs",      y: 70,  color: "#9b86bd", glyph: "doc"   },
+    { name: "Submittals", y: 170, color: "#e58a63", glyph: "stamp" },
+    { name: "Drawings",   y: 270, color: "#e2af5d", glyph: "plan"  },
+    { name: "Meetings",   y: 370, color: "#00897B", glyph: "cam"   },
   ];
   const outputs = [
-    { name: "RFIs",               y: 70,  glyph: "rfi"   },
-    { name: "Change orders",      y: 170, glyph: "edit"  },
-    { name: "Compliance reports", y: 270, glyph: "check" },
-    { name: "Submittal logs",     y: 370, glyph: "log"   },
+    { name: "Compliance verdicts", y: 70,  glyph: "check" },
+    { name: "RFIs",                y: 170, glyph: "rfi"   },
+    { name: "Change orders",       y: 270, glyph: "edit"  },
+    { name: "Submittal logs",      y: 370, glyph: "log"   },
   ];
   const cx = 530;
   const cy = 220;
@@ -230,7 +232,7 @@ function Connect() {
   const pillW = 196;
 
   return (
-    <Scene id="connect" n="01" kicker="Connect" title="Your stack in. Finished work out." wide>
+    <Scene id="connect" n="01" kicker="Connect" title="Your documents in. Verdicts out." wide>
       <div className="glass overflow-hidden rounded-2xl p-4 md:p-6">
         <svg viewBox="0 0 1060 440" className="w-full">
           <text x={42} y={28} fill="#726a5e" fontSize={11} letterSpacing={3} fontFamily="JetBrains Mono, monospace">INPUTS</text>
@@ -279,31 +281,40 @@ function Connect() {
           <text x={cx} y={cy + r + 26} textAnchor="middle" fill="#aaa294" fontSize={12} letterSpacing={2} fontFamily="JetBrains Mono, monospace">VOLTAIC</text>
         </svg>
         <p className="mt-2 text-center font-mono text-[12px] text-[var(--faint-text)]">
-          Meetings, specs &amp; submittals flow in — RFIs, change orders &amp; compliance reports come out.
+          Specs, submittals, drawings &amp; meetings flow in — cited compliance verdicts, RFIs &amp; change orders come out.
         </p>
       </div>
     </Scene>
   );
 }
 
-// Simple brand-color badge with a glyph — our own marks, not vendor artwork.
+// Simple color badge with a document-type glyph — our own marks.
 function BrandBadge({ x, y, color, glyph }: { x: number; y: number; color: string; glyph: string }) {
   const size = 28;
-  const cx = x + size / 2;
-  const cy = y + size / 2;
+  const paths: Record<string, string> = {
+    doc:   "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6M8 13h8M8 17h8",
+    stamp: "M9 12l2 2 4-4M12 2L4 7v6c0 5 4 9 8 9s8-4 8-9V7z",
+    plan:  "M3 9h18M9 3v18M3 4h18v16H3z",
+  };
   return (
     <g>
       <rect x={x} y={y} width={size} height={size} rx={6} fill={color} />
-      {glyph === "T" || glyph === "O" ? (
-        <text x={cx} y={cy + 6} fill="#fff" fontSize={17} fontWeight={700} fontFamily="Inter, sans-serif" textAnchor="middle">
-          {glyph}
-        </text>
-      ) : (
+      {glyph === "cam" ? (
         // camera glyph — body + lens triangle
         <g fill="#fff">
           <rect x={x + 5} y={y + 10} width={12} height={8} rx={1.5} />
-          <path d={`M ${x + 17} ${y + 12} L ${x + 23} ${y + 9} L ${x + 23} ${y + 19} L ${x + 17} ${y + 16} Z`} />
+          <path d={`M ${x + 17} ${y + 12} L ${x + 23} ${y + 9} L ${x + 23} ${y + 16} Z`} />
         </g>
+      ) : (
+        <path
+          transform={`translate(${x + 5}, ${y + 5}) scale(0.75)`}
+          d={paths[glyph]}
+          fill="none"
+          stroke="#fff"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       )}
     </g>
   );
@@ -347,8 +358,8 @@ function OutputBadge({ x, y, glyph }: { x: number; y: number; glyph: string }) {
 // Three-act story: inputs (every doc Voltaic eats) → outputs (templates
 // auto-filled, contradictions flagged inline) → action (agentic chat).
 const WATCH_PHASES = [
-  { id: "ingest", label: "Ingesting", active: "docs",    sub: "Pulling in specs, meetings, drawings, submittals · 412 pages indexed" },
-  { id: "draft",  label: "Drafting",  active: "compare", sub: "Auto-filling compliance reports — contradictions flagged inline" },
+  { id: "ingest", label: "Ingesting", active: "docs",    sub: "Pulling in specs, submittals, drawings, meetings · 412 pages indexed" },
+  { id: "check",  label: "Checking",  active: "compare", sub: "Deterministic AIC · SCCR · NEMA verdicts — every row cited to its source page" },
   { id: "ask",    label: "Answering", active: "agents",  sub: "Cited reply with reasoning, ready to copy into the RFI" },
 ] as const;
 
@@ -366,7 +377,7 @@ function Watch() {
   const current = WATCH_PHASES[phase];
 
   return (
-    <Scene id="watch" n="02" kicker="Watch · 20 seconds" title="Inputs in. Reports out. Agent on top." wide>
+    <Scene id="watch" n="02" kicker="Watch · 20 seconds" title="Documents in. Verdicts out. Agent on top." wide>
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -484,19 +495,83 @@ function PhaseIngest() {
       transition={{ duration: 0.5, ease: EASE }}
       className="absolute inset-0 flex flex-col gap-3.5 p-6 md:p-8"
     >
-      {/* Header — names the two sources explicitly */}
+      {/* Header — names the two sources explicitly, documents first */}
       <div className="flex items-start justify-between">
         <div>
           <div className="text-[14px] font-medium text-[var(--cream-text)]">
-            Joining your meetings <span className="text-[var(--faint-text)]"> · </span>
-            Indexing every upload
+            Indexing every document <span className="text-[var(--faint-text)]"> · </span>
+            Listening to your meetings
           </div>
           <div className="mt-0.5 font-mono text-[10.5px] text-[var(--faint-text)]">Riverside Medical · Electrical</div>
         </div>
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--faint-text)]">two sources</span>
       </div>
 
-      {/* Section label — meetings */}
+      {/* Section label — uploads (the featured source) */}
+      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--faint-text)]">
+        <span className="h-px flex-1 bg-[var(--edge)]" />
+        <span>from your uploads · drag &amp; drop</span>
+        <span className="h-px flex-1 bg-[var(--edge)]" />
+      </div>
+
+      {/* Doc cards — 3 columns, the "uploaded" source. Each card gets a coral
+          sweep bar that fills as it appears, conveying "this just uploaded". */}
+      <motion.div
+        initial="hidden"
+        animate="visible"
+        transition={{ staggerChildren: 0.4, delayChildren: 0.15 }}
+        className="grid grid-cols-1 gap-2.5 md:grid-cols-3"
+      >
+        {INGEST_UPLOADS.map((d, i) => (
+          <motion.div
+            key={d.key}
+            variants={{
+              hidden: { opacity: 0, y: 12, scale: 0.96 },
+              visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.4, ease: EASE } },
+            }}
+            className="relative flex flex-col gap-1.5 overflow-hidden rounded-xl border border-[var(--edge)] bg-white/[0.03] p-3"
+          >
+            {/* Upload-sweep progress bar across the top of each card */}
+            <motion.span
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ delay: 0.5 + i * 0.4, duration: 0.55, ease: "easeOut" }}
+              style={{ transformOrigin: "left" }}
+              className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#e58a63] via-[#eaa379] to-[#e58a63]"
+            />
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md" style={{ background: `${d.color}26`, color: d.color }}>
+                <IngestIcon kind={d.icon} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-medium text-[var(--cream-text)]">{d.tag}</div>
+                <div className="font-mono text-[10px] text-[var(--faint-text)]">{d.meta}</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1 font-mono text-[10px] text-[var(--muted-text)]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} className="h-2.5 w-2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0-12L7 9m5-5l5 5M4 20h16" />
+                </svg>
+                uploaded · just now
+              </span>
+              <motion.span
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 1.1 + i * 0.4, duration: 0.32, ease: EASE }}
+                className="flex items-center gap-1 rounded-full bg-[#84b596]/15 px-1.5 py-[2px] font-mono text-[9.5px] font-medium text-[#84b596]"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="h-2.5 w-2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                parsed
+              </motion.span>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* Section label — meetings (the second source) */}
       <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--faint-text)]">
         <span className="h-px flex-1 bg-[var(--edge)]" />
         <span>from meetings · live</span>
@@ -507,7 +582,7 @@ function PhaseIngest() {
       <motion.div
         initial={{ opacity: 0, y: 10, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ delay: 0.15, duration: 0.42, ease: EASE }}
+        transition={{ delay: 1.9, duration: 0.42, ease: EASE }}
         className="relative flex items-center gap-3 rounded-xl border border-[#84b596]/30 bg-[#84b596]/[0.08] p-3"
       >
         {/* Faint live waveform on the card edge */}
@@ -532,7 +607,7 @@ function PhaseIngest() {
         <motion.span
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.85, duration: 0.35, ease: EASE }}
+          transition={{ delay: 2.5, duration: 0.35, ease: EASE }}
           className="flex items-center gap-1 rounded-full bg-[#84b596]/15 px-2 py-[3px] font-mono text-[10px] font-medium text-[#84b596]"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="h-2.5 w-2.5">
@@ -540,70 +615,6 @@ function PhaseIngest() {
           </svg>
           transcribing
         </motion.span>
-      </motion.div>
-
-      {/* Section label — uploads */}
-      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--faint-text)]">
-        <span className="h-px flex-1 bg-[var(--edge)]" />
-        <span>from your uploads · drag &amp; drop</span>
-        <span className="h-px flex-1 bg-[var(--edge)]" />
-      </div>
-
-      {/* Doc cards — 3 columns, the "uploaded" source. Each card gets a coral
-          sweep bar that fills as it appears, conveying "this just uploaded". */}
-      <motion.div
-        initial="hidden"
-        animate="visible"
-        transition={{ staggerChildren: 0.4, delayChildren: 0.65 }}
-        className="grid grid-cols-1 gap-2.5 md:grid-cols-3"
-      >
-        {INGEST_UPLOADS.map((d, i) => (
-          <motion.div
-            key={d.key}
-            variants={{
-              hidden: { opacity: 0, y: 12, scale: 0.96 },
-              visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.4, ease: EASE } },
-            }}
-            className="relative flex flex-col gap-1.5 overflow-hidden rounded-xl border border-[var(--edge)] bg-white/[0.03] p-3"
-          >
-            {/* Upload-sweep progress bar across the top of each card */}
-            <motion.span
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              transition={{ delay: 0.95 + i * 0.4, duration: 0.55, ease: "easeOut" }}
-              style={{ transformOrigin: "left" }}
-              className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#e58a63] via-[#eaa379] to-[#e58a63]"
-            />
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md" style={{ background: `${d.color}26`, color: d.color }}>
-                <IngestIcon kind={d.icon} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] font-medium text-[var(--cream-text)]">{d.tag}</div>
-                <div className="font-mono text-[10px] text-[var(--faint-text)]">{d.meta}</div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1 font-mono text-[10px] text-[var(--muted-text)]">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} className="h-2.5 w-2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0-12L7 9m5-5l5 5M4 20h16" />
-                </svg>
-                uploaded · just now
-              </span>
-              <motion.span
-                initial={{ opacity: 0, scale: 0.6 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 1.55 + i * 0.4, duration: 0.32, ease: EASE }}
-                className="flex items-center gap-1 rounded-full bg-[#84b596]/15 px-1.5 py-[2px] font-mono text-[9.5px] font-medium text-[#84b596]"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="h-2.5 w-2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                parsed
-              </motion.span>
-            </div>
-          </motion.div>
-        ))}
       </motion.div>
 
       {/* Corpus stats */}
@@ -688,7 +699,7 @@ function PhaseDraft() {
           </div>
           <span className="font-medium text-[var(--cream-text)]">AIC Compliance Report · Draft</span>
         </div>
-        <span className="hidden rounded-full bg-white/[0.05] px-2.5 py-1 font-mono text-[10px] text-[var(--muted-text)] md:block">auto-filled from 3 calls + 12 submittals</span>
+        <span className="hidden rounded-full bg-white/[0.05] px-2.5 py-1 font-mono text-[10px] text-[var(--muted-text)] md:block">graded against Spec 26 24 16 · every value cited to its page</span>
       </div>
       <div className="overflow-hidden rounded-xl border border-[var(--edge)]">
         <div className="grid grid-cols-[1.2fr_1fr_1fr_1.2fr] gap-4 bg-white/[0.03] px-4 py-2.5 font-mono text-[10px] uppercase tracking-wider text-[var(--faint-text)]">
@@ -1019,10 +1030,24 @@ function Proof() {
   );
 }
 
-/* ── Why us: the wedge + Procore preempt ─────────────────── */
+/* ── Why us: the wedge — deterministic, sub-side, evidence-bound ── */
 function WhyUs() {
+  const pillars = [
+    {
+      title: "Deterministic, not vibes",
+      body: "Numeric checks run through a rule engine — same spec, same submittal, same verdict, every time. The LLM never decides pass or fail.",
+    },
+    {
+      title: "Built for the sub, not the GC",
+      body: "The big platforms protect the general contractor. Voltaic protects the electrical sub — the one who eats the rework when a 42 kAIC panel ships against a 65 kAIC spec.",
+    },
+    {
+      title: "Every flag walks to its source",
+      body: "Each verdict cites the spec paragraph and the cut-sheet page that prove it. And when a meeting contradicts the contract, Voltaic catches that too.",
+    },
+  ];
   return (
-    <section className="relative mx-auto max-w-4xl px-6 py-20 text-center">
+    <section className="relative mx-auto max-w-5xl px-6 py-20 text-center">
       <motion.h2
         initial={{ opacity: 0, y: 24 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -1030,18 +1055,23 @@ function WhyUs() {
         transition={{ duration: 0.7, ease: EASE }}
         className="text-[26px] font-medium leading-snug tracking-tight text-[var(--cream-text)] md:text-[34px]"
       >
-        The only construction AI that catches when a{" "}
-        <span className="text-[#e58a63]">meeting contradicts the contract.</span>
+        Deterministic verdicts.{" "}
+        <span className="text-[#e58a63]">Not AI vibes.</span>
       </motion.h2>
-      <motion.p
-        initial={{ opacity: 0, y: 16 }}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.7, delay: 0.15, ease: EASE }}
-        className="mx-auto mt-5 max-w-md text-[14px] leading-relaxed text-[var(--muted-text)]"
+        className="mt-10 grid grid-cols-1 gap-4 text-left md:grid-cols-3"
       >
-        Procore lives inside Procore. Voltaic lives in the meeting — where the decisions that cause the problems actually get made.
-      </motion.p>
+        {pillars.map((p) => (
+          <div key={p.title} className="glass rounded-2xl p-6">
+            <div className="text-[15px] font-medium text-[var(--cream-text)]">{p.title}</div>
+            <p className="mt-2 text-[13px] leading-relaxed text-[var(--muted-text)]">{p.body}</p>
+          </div>
+        ))}
+      </motion.div>
     </section>
   );
 }
@@ -1052,9 +1082,9 @@ function ClosingCTA() {
     <section className="relative overflow-hidden px-6 py-36 text-center">
       <div className="aurora" style={{ width: 520, height: 520, background: "#e58a63", opacity: 0.2, top: "-30%", left: "50%", transform: "translateX(-50%)" }} />
       <motion.h2 initial={{ opacity: 0, y: 28 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.8, ease: EASE }} className="relative z-10 mx-auto max-w-2xl text-[34px] font-medium leading-tight tracking-tight text-[var(--cream-text)] md:text-[52px]">
-        Stop losing the project
+        Stop approving submittals
         <br />
-        <span className="bg-gradient-to-r from-[#e58a63] to-[#e2af5d] bg-clip-text text-transparent">in the meeting.</span>
+        <span className="bg-gradient-to-r from-[#e58a63] to-[#e2af5d] bg-clip-text text-transparent">on faith.</span>
       </motion.h2>
       <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7, delay: 0.2, ease: EASE }} className="relative z-10 mt-10">
         <Link href="/sign-up" className="glow-pulse inline-block rounded-full bg-[#e58a63] px-8 py-4 text-[16px] font-medium text-[#1a130f] transition-colors hover:bg-[#eb9a76]">
